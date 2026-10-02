@@ -1,0 +1,44 @@
+[
+  {
+    "case": "a all merges conflict",
+    "expectedExit": 1,
+    "actualExit": 1,
+    "result": "PASS",
+    "stderrKeyLines": "  CONFLICT T002 vs epic tip in Lib01/Foo1.cs (merge): returned to worker |   CONFLICT T004 vs epic tip in Lib01/Foo.cs (merge): returned to worker |   REBASE T002: conflicts again -> needs-worker |   REBASE T004: conflicts again -> needs-worker"
+  },
+  {
+    "case": "b empty batch",
+    "expectedExit": 0,
+    "actualExit": 0,
+    "result": "PASS",
+    "stderrKeyLines": "nothing to do: tasks.json is empty (0 tasks); no worktree created, no suite run"
+  },
+  {
+    "case": "c missing task branch",
+    "expectedExit": 3,
+    "actualExit": 3,
+    "result": "PASS",
+    "stderrKeyLines": "error: task branch not found: T999 (task/T999); nothing was merged (fix tasks.json or create the branch)"
+  },
+  {
+    "case": "d long state path (275 chars) batch.cs",
+    "expectedExit": 2,
+    "actualExit": 2,
+    "result": "PASS",
+    "stderrKeyLines": "error: state dir path is 275 chars (limit 200): Windows MAX_PATH breaks git/dotnet children, use a shorter --state"
+  },
+  {
+    "case": "d long state path testgate.cs",
+    "expectedExit": 2,
+    "actualExit": 2,
+    "result": "PASS",
+    "stderrKeyLines": "error: state dir path is 281 chars (limit 200): use a shorter --state"
+  },
+  {
+    "case": "e malformed tasks.json",
+    "expectedExit": 3,
+    "actualExit": 3,
+    "result": "PASS",
+    "stderrKeyLines": "error: tasks file is not valid JSON: Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. Path: $[0].id | LineNumber: 1 | BytePositionInLine: 0."
+  }
+]

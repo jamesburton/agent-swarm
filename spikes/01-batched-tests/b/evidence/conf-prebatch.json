@@ -1,0 +1,190 @@
+{
+  "mode": "batched",
+  "prebatch": true,
+  "tasks": 12,
+  "fullSuiteRuns": 3,
+  "bisectRuns": 0,
+  "inferredRedSkipped": 0,
+  "batches": 4,
+  "sizeTrace": [
+    4,
+    8,
+    8,
+    8
+  ],
+  "wallSeconds": 458.3,
+  "waitMs": 14,
+  "runMs": 375823,
+  "slotUtilisation": 1,
+  "tasksLanded": 10,
+  "returned": 3,
+  "rebasedAndLanded": 1,
+  "needsWorker": 2,
+  "rejectedRed": 0,
+  "conflictsHit": 3,
+  "landed": [
+    {
+      "id": "T001",
+      "batch": 1,
+      "commit": "8caa24b"
+    },
+    {
+      "id": "T002",
+      "batch": 1,
+      "commit": "8973347"
+    },
+    {
+      "id": "T003",
+      "batch": 1,
+      "commit": "ad553df"
+    },
+    {
+      "id": "T004",
+      "batch": 1,
+      "commit": "269463e"
+    },
+    {
+      "id": "T005",
+      "batch": 2,
+      "commit": "7e02fa2"
+    },
+    {
+      "id": "T006",
+      "batch": 2,
+      "commit": "0172232"
+    },
+    {
+      "id": "T007",
+      "batch": 2,
+      "commit": "06a259f"
+    },
+    {
+      "id": "T009",
+      "batch": 2,
+      "commit": "c1790c2"
+    },
+    {
+      "id": "T011",
+      "batch": 2,
+      "commit": "45ec0fb"
+    },
+    {
+      "id": "T012",
+      "batch": 4,
+      "commit": "4314413"
+    }
+  ],
+  "rejected": [],
+  "returnedFile": "C:\\Development\\agent-swarm-wt\\s1c\\st-conf-prebatch\\runs\\conf\\returned.json",
+  "batchLog": [
+    {
+      "batch": 1,
+      "bisect": false,
+      "tasks": [
+        "T001",
+        "T002",
+        "T003",
+        "T004"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 2,
+      "bisect": false,
+      "tasks": [
+        "T005",
+        "T006",
+        "T007",
+        "T009",
+        "T011"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 3,
+      "bisect": false,
+      "tasks": [],
+      "result": "all merges conflicted: no suite run"
+    },
+    {
+      "batch": 4,
+      "bisect": false,
+      "tasks": [
+        "T012"
+      ],
+      "result": "green"
+    }
+  ],
+  "suites": [
+    {
+      "label": "b1-batch-T001+T002+T003+T004",
+      "waitMs": 3,
+      "runMs": 109038,
+      "acquiredUtc": "2026-10-02T23:08:00.5053197Z",
+      "releasedUtc": "2026-10-02T23:09:49.7231187Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b2-batch-T005+T006+T007+T009+T011",
+      "waitMs": 6,
+      "runMs": 96633,
+      "acquiredUtc": "2026-10-02T23:10:06.6506881Z",
+      "releasedUtc": "2026-10-02T23:11:43.4968483Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b4-batch-T012",
+      "waitMs": 5,
+      "runMs": 170152,
+      "acquiredUtc": "2026-10-02T23:12:38.4444331Z",
+      "releasedUtc": "2026-10-02T23:15:28.804862Z",
+      "slot": 0,
+      "reclaimed": false
+    }
+  ],
+  "overlapPairs": 3,
+  "overlapPairsSameBatchFirstPlacement": 0,
+  "overlapPairsSeparated": 3,
+  "naiveFixed4SameBatch": 3,
+  "touchesDerivedFromGit": true,
+  "derivedTouches": {
+    "T001": [
+      "Lib03/Foo2.cs"
+    ],
+    "T002": [
+      "Lib06/Foo1.cs"
+    ],
+    "T003": [
+      "Lib03/Foo.cs"
+    ],
+    "T004": [
+      "Lib01/Foo1.cs"
+    ],
+    "T005": [
+      "Lib06/Foo2.cs"
+    ],
+    "T006": [
+      "Lib03/Foo3.cs"
+    ],
+    "T007": [
+      "Lib01/Foo.cs"
+    ],
+    "T008": [
+      "Lib01/Foo.cs"
+    ],
+    "T009": [
+      "Lib05/Foo.cs"
+    ],
+    "T010": [
+      "Lib05/Foo.cs"
+    ],
+    "T011": [
+      "Lib04/Foo.cs"
+    ],
+    "T012": [
+      "Lib04/Foo.cs"
+    ]
+  }
+}

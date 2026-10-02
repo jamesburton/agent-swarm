@@ -1,0 +1,52 @@
+{
+  "loadPercentBefore": 82.0,
+  "completed": true,
+  "exitCodes": [
+    0,
+    0
+  ],
+  "suiteRuns": 4,
+  "overlappingHolds": 0,
+  "suites": [
+    {
+      "inst": "c2b",
+      "label": "b1-batch-T001+T002+T003+T004",
+      "waitMs": 45,
+      "runMs": 93175,
+      "acquiredUtc": "2026-10-02T23:23:07.4463933Z",
+      "releasedUtc": "2026-10-02T23:24:40.8295046Z"
+    },
+    {
+      "inst": "c2a",
+      "label": "b1-batch-T001+T002+T003+T004",
+      "waitMs": 93285,
+      "runMs": 46643,
+      "acquiredUtc": "2026-10-02T23:24:40.8787781Z",
+      "releasedUtc": "2026-10-02T23:25:27.7629950Z"
+    },
+    {
+      "inst": "c2b",
+      "label": "b2-batch-T005+T006",
+      "waitMs": 27575,
+      "runMs": 35348,
+      "acquiredUtc": "2026-10-02T23:25:27.8130640Z",
+      "releasedUtc": "2026-10-02T23:26:03.3706597Z"
+    },
+    {
+      "inst": "c2a",
+      "label": "b2-batch-T005+T006",
+      "waitMs": 16675,
+      "runMs": 29762,
+      "acquiredUtc": "2026-10-02T23:26:03.5221556Z",
+      "releasedUtc": "2026-10-02T23:26:33.5011494Z"
+    }
+  ],
+  "maxWaitMs": 93285.0,
+  "slotBusyFractionFromFirstAcquire": 0.995,
+  "slotBusyFractionFromLaunch": 0.915,
+  "wallMs": 223930.0,
+  "landed": [
+    6,
+    6
+  ]
+}

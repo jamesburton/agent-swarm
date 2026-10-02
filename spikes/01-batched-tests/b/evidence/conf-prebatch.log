@@ -1,0 +1,10 @@
+batch 1 size 4: T001,T002,T003,T004
+batch 2 size 8: T005,T006,T007,T009,T011
+batch 3 size 8: T008,T010,T012
+  CONFLICT T008 vs T007 in Lib01/Foo.cs (merge): returned to worker
+  CONFLICT T010 vs T009 in Lib05/Foo.cs (merge): returned to worker
+  CONFLICT T012 vs T011 in Lib04/Foo.cs (merge): returned to worker
+  REBASE T008: conflicts again -> needs-worker
+  REBASE T010: conflicts again -> needs-worker
+  REBASE T012: clean -> requeued
+batch 4 size 8: T012

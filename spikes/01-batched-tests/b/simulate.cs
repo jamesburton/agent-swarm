@@ -1,8 +1,10 @@
 #:property JsonSerializerIsReflectionEnabledByDefault=true
 #:property PublishAot=false
 // THROWAWAY SPIKE 1B: serial baseline vs adaptive batched for failing 0/1/2, plus crash-lock and slot-gate demos.
+// (touches are now derived from git by batch.cs; the old synthesized overlap-map.json is gone. Conflict, overlap, concurrency and
+// edge-case evidence come from conflicts-overlap.ps1, concurrent.ps1, edge-cases.ps1 and serial-vs-batched.ps1.)
 // Usage (from this folder): dotnet run simulate.cs -- --root C:\Development\agent-swarm-wt\s1b [--serial-actual] [--slots 2]
-// Expects sandboxes <root>\f0, f1, f2 (sandbox-gen.cs --failing 0/1/2, same seed/layout). Writes results.json here.
+// Expects sandboxes <root>\f0, f1, f2 (sandbox-gen.cs --failing 0/1/2, same seed/layout). Writes results-sim.json here (results.json is composed by make-results.ps1 from evidence/).
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -12,7 +14,6 @@ string root = Path.GetFullPath(Opt("root") ?? throw new ArgumentException("--roo
 bool serialActual = args.Contains("--serial-actual");
 string slots = Opt("slots") ?? "2";
 string here = Directory.GetCurrentDirectory();
-string overlapMap = Path.Combine(here, "overlap-map.json"); // SYNTHESIZED touches (generator tasks touch distinct files)
 var jopt = new JsonSerializerOptions { WriteIndented = true };
 
 (int code, string stdout, string stderr) Exec(string dir, string exe, params string[] a)
@@ -30,7 +31,6 @@ JsonElement Batch(string sandbox, string mode, string stateName, bool withOverla
     string state = Path.Combine(root, "state-" + stateName);
     if (Directory.Exists(state)) Directory.Delete(state, true);
     var a = new List<string> { "run", "batch.cs", "--", sandbox, Path.Combine(sandbox, "tasks.json"), "--state", state, "--mode", mode, "--slots", slots, "--worktree", sandbox + "-wt" };
-    if (withOverlap) { a.Add("--overlap-map"); a.Add(overlapMap); }
     Console.Error.WriteLine($"== batch.cs {stateName}");
     var r = Exec(here, "dotnet", a.ToArray());
     Console.Error.WriteLine(r.stderr.Length > 3000 ? r.stderr[^3000..] : r.stderr);
@@ -85,7 +85,7 @@ foreach (int f in new[] { 0, 1, 2 })
     {
         metrics["preBatchOverlapPairs"] = bat.GetProperty("overlapPairs").GetInt32();
         metrics["preBatchSeparatedOverlaps"] = bat.GetProperty("overlapPairsSeparated").GetInt32();
-        metrics["preBatchOverlapsInSameBatch"] = bat.GetProperty("overlapPairsSameBatch").GetInt32();
+        metrics["preBatchOverlapsInSameBatch"] = bat.GetProperty("overlapPairsSameBatchFirstPlacement").GetInt32();
         baseline["naiveFixed4OverlapsInSameBatch"] = bat.GetProperty("naiveFixed4SameBatch").GetInt32();
     }
 }
@@ -142,6 +142,6 @@ var results = new
     metrics, baseline, verdict, notes,
     howToRun = "dotnet run simulate.cs -- --root C:\\Development\\agent-swarm-wt\\s1b   (sandboxes f0,f1,f2 from sandbox-gen.cs --projects 6 --tests-per 10 --delay-ms 100 --seed 1 --failing N --tasks 12)"
 };
-File.WriteAllText(Path.Combine(here, "results.json"), JsonSerializer.Serialize(results, jopt));
+File.WriteAllText(Path.Combine(here, "results-sim.json"), JsonSerializer.Serialize(results, jopt));
 Console.WriteLine(JsonSerializer.Serialize(results, jopt));
 return 0;

@@ -44,3 +44,11 @@ to 9001; the test asserts the two codes differ. Script merged branches onto `mai
 - Same seed gives the same task/file layout and pairs; pairs are the first two tasks in different libs.
 - Test classes are one class per project, so tests run serially within a project; parallelism is across projects.
 - `Directory.Delete` of an existing out dir needed a read-only attribute reset for `.git` objects (fixed).
+
+## Same-file pairs (added for spike 1B)
+
+`--conflicts K` (K pairs rewrite the same `Note` line of one file: a real textual merge conflict), `--overlap K` (pair edits `Code` vs
+`Compute` of one file: clean merge, shared `touches`), `--stacked K` (task b is branched from task a and re-edits a line: merges
+clean while a is unlanded, conflicts after a squash-lands, `git rebase` is clean). Pairs take the last 2K task ids, adjacent; each pair
+uses one file slot. Defaults (all 0) reproduce the old output. Verified by spike 1B runs on 12-task `--conflicts 2 --stacked 1` and
+`--conflicts 1 --overlap 2 --stacked 1` sandboxes (outcomes in `../01-batched-tests/b/evidence/`).

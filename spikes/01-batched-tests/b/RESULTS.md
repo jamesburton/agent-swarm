@@ -1,36 +1,51 @@
-# Spike 1B results: adaptive batch + overlap pre-batching + halving bisect
+# Spike 1B results (adopted): adaptive batch + derived-touches pre-batching + halving bisect
 
-> THROWAWAY SPIKE. Sandbox: `--projects 6 --tests-per 10 --delay-ms 100 --seed 1 --tasks 12`, `--failing 0/1/2`, 2 slots.
-> The host was at ~100% CPU from other sessions: raw wall times are 2-3x the unloaded cost. Compare COUNTS and MODELLED cost.
+> THROWAWAY SPIKE. Sandbox: 6 projects x 10 tests x 100 ms, 12 tasks, seed 1. Shared host at 84-100% CPU (Win32_Processor
+> LoadPercentage recorded before every phase): **compare COUNTS first**, wall seconds are noisy. Raw data: `evidence/`, `results.json`.
 
-| Metric (12 tasks) | Serial (1 suite/task) | Failing 0 | Failing 1 | Failing 2 |
-|---|---|---|---|---|
-| Full-suite runs | 12 | 3 | 7 | 8 |
-| of which bisect runs | - | 0 | 3 | 4 |
-| Red runs inferred, not executed | - | 0 | 1 | 2 |
-| Modelled cost (runs x 142.8 s) | 1714 s | 428 s | 1000 s | 1142 s |
-| Raw wall time (loaded host) | not run | 869 s | 2451 s | 2984 s |
-| Batch size trace | 1 | 4,8,8 | 4,2,4,8 | 4,2,4,8 |
-| Culprit isolated correctly | n/a | yes (none) | yes (T002) | yes (T002, T004) |
+## What was closed (all five open items, with real runs)
+1. **Conflict path**: `sandbox-gen --conflicts K --overlap K --stacked K`; batch.cs stops on the first conflict, names the pair,
+   writes `returned.json` (task, conflictingWith, files, git output), continues the batch, then `git rebase`s the task onto the epic tip.
+2. **Derived touches**: `git diff --name-only <base>...<branch>`; `tasks.json` touches and the old `overlap-map.json` are no longer read.
+3. **Serial baseline measured** (12 real suites on a green chain), not modelled.
+4. **Concurrent batches** share one state dir with `--slots 1`: serialised, no deadlock, killed holder reclaimed.
+5. **Failure edges**: `edge-cases.ps1`, 6 of 6 cases pass (exit code + one-line message asserted, 60 s hang guard).
 
-Single warm full suite measured through testgate: 142.8 s (138 s on the first measure). Modelled saving vs serial: 75% / 42% / 33%.
+## Evidence table
+| Item | Counts | Wall / notes |
+|---|---|---|
+| Serial f0 (measured) | 12 suites, 12 landed | 889 s (load 100%) |
+| Batched f0 | 2 suites (sizes 4, 8), 12 landed | 155 s (load 84%): 5.7x measured, 6x by count |
+| One warm suite | 1 | 70.7 s (so 12 x 70.7 = 848 s matches the 889 s serial) |
+| Bisect regression f1 / f2 | 7 / 8 suites (3 / 4 bisect, 1 / 2 inferred), culprits T002 / T002+T004 | unchanged vs the previous run |
+| Conflicts `conf` (2 conflict + 1 stacked pair) | landed 10, returned 3, rebased-and-landed 1 (T012), needs-worker 2 (T008, T010); 3 suites, 4 batches | the 3 b-tasks conflicted in one batch: that batch ran NO suite |
+| Overlap `ov`, pre-batched | landed 11, returned 2, rebased-and-landed 1 (T012), needs-worker 1 (T006); 4 suites | overlap pairs together at first placement: 0 of 4 |
+| Overlap `ov`, naive fixed-4, no pre-batch | same 11 / 2 / 1 / 1; 4 suites | overlap pairs together: 3 of 4 (all 4 in same fixed chunk) |
+| Derived touches | `conf` run used a tasks.json whose touches were all `bogus/Ignored.cs`; summary `derivedTouches` shows the real files and pairs were still separated | |
+| Concurrent (2 batch.cs, `--slots 1`, one state dir) | 4 suites, 0 overlapping holds, waitMs 45 / 93285 / 27575 / 16675, both instances landed 6/6, exit 0 | slot busy 99.5% from first acquire (91.5% from launch) |
+| Killed holder (expiry 8 s, heartbeat 1 s) | holder c2b's testgate tree killed mid-suite; c2a `reclaimed: true` | 10.9 s after the kill; c2b exited 4 with a one-line error; c2a landed 6/6 |
+| Edges | a all conflict: exit 1, 0 suites, needs-worker 2; b empty: exit 0; c missing branch: exit 3; d state path >200 chars: exit 2 (batch and testgate); e bad JSON: exit 3 | no hangs |
 
-| Other metric | Result |
-|---|---|
-| Pre-batch separated overlaps | 3 of 3 synthesized overlapping pairs split across batches (0 together); naive fixed chunks of 4 would put 3 of 3 in the same batch |
-| Crashed-lock recovery | Holder tree killed with `taskkill /F /T`; new run reclaimed the slot, waitMs 2647 (demo expiry 6 s, default 60 s) |
-| Slot gate | 3 concurrent 4 s jobs through 2 slots: waits 8 / 56 / 10973 ms, wait fraction 0.258, both slots used |
-| Slot utilisation inside batch.cs | 1.0 wait fraction ~0: batches run one at a time, so the gate never queued them (no contention to measure) |
-| Squash | One commit per ticket on `epic/E1` with trailers `Ticket: Txxx`, `Epic: E1`, `Batch: n` (checked on f2) |
+## Findings that change the picture
+- **Pre-batching does not avoid textual conflicts and did not cut suite runs** (4 vs 4 on `ov`). It separates same-file tasks, so a red batch never
+  mixes overlapping edits, and it moves a stacked task's conflict from land time (naive: the suite tested T012 merged, then the squash
+  failed, so the tested tree differed from the landed tree) to merge time (before any suite). Cost: it can add a batch.
+- **Rebase rescues only stacked tasks** (parent already squash-landed; git drops the parent patch). Same-line conflicts conflict again
+  and become `needs-worker`; no rebase can fix those. Rebasing runs on a copy ref `rebased/E1/Txxx`, so worker branches are untouched.
+- The earlier modelled f0 count was 3 suites because of synthesized overlaps; with real (derived) touches it is 2.
+- Windows long paths: .NET created a 297-char directory (LongPathsEnabled=1) but `git -C` on it fails "Filename too long", hence the 200-char guard.
 
-## How it works
-- Adaptive size: start 4, x2 after a green batch (max 8), /2 after any red batch (min 2).
-- Pre-batcher: queue order, skips a task whose `touches` intersect one already in the batch; skipped tasks go to a later batch.
-- Merge sequentially into worktree `epic/E1`; a conflict aborts that merge, reports the offender, rest continue.
-- Red batch: halve; if the left half lands green, the right half on top is the already-seen red state, so that run is inferred (saves a suite run).
+## Caveats (top three)
+1. Wall time: serial ran at load 100%, batched at 84%, so the 5.7x is slightly flattering; counts (12 vs 2) are the reliable number.
+2. Conflicts and overlaps are generator-made and synthetic; real LLM-worker edits will conflict at different rates and shapes.
+3. Culprit blame is the later task of an interacting pair; the two-simultaneous-reclaimers race is still unstressed.
 
-## Caveats
-1. **Synthesized data**: generator tasks touch distinct files, so `overlap-map.json` adds fake overlapping `touches` (T006, T008, T012). Real overlap rates are unknown. Pre-batching here removes conflicts that would not have occurred in this sandbox anyway.
-2. **Serial baseline wall time was not executed** for the final run (modelled as 12 x single suite). A partial earlier serial run took ~490 s per suite under heavier load, so raw wall is not comparable; use run counts.
-3. Seeded failure is a pairwise interaction: the pair's second task (T002, T004) is rejected, the first lands. Merge-conflict path was not exercised (no conflicts arise). Only 12 tasks and one crash-demo run; the 3-batch f0 plan means f0's 75% saving depends on max 8 and no reds.
-4. Lock reclaim has a small theoretical race between two simultaneous reclaimers (documented in testgate.cs); not stressed.
+## What remains open
+- Real repo with real overlapping edits; prediction of conflicts from hunk ranges instead of file names.
+- Rebase of multi-commit tasks with semantic (non-textual) conflicts; who owns the rebased ref (see `PROMOTION.md` decisions).
+- More than two concurrent gates, fairness (no FIFO), max-wait timeout; two simultaneous reclaimers.
+- `simulate.cs` (old driver) was not re-run; its numbers were reproduced by `regress.ps1` for f1/f2 only.
+
+## How to run
+`pwsh -File serial-vs-batched.ps1`, `conflicts-overlap.ps1 -Which conf|ov`, `concurrent.ps1`, `regress.ps1`, `edge-cases.ps1`, then `make-results.ps1`.
+Sandboxes live under `C:\Development\agent-swarm-wt\s1c\` (short paths).

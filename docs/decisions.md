@@ -29,3 +29,12 @@ Newest last. Each entry: decision, rationale, date. Revisit by adding a new entr
 | Worker-local tests | Project-graph affected tests: map changed files to owning projects and dependents, run only those test projects. Deterministic, no LLM tokens (.NET first). |
 | Batching | Adaptive batch size (grows after green, shrinks after red, bounded by min/max and the CPU slot budget); red batches are bisected by halving (~log2 N extra runs) and greens land as they pass. |
 | Defaults (mine, unconfirmed) | Slot lock = lock directory with atomic create plus heartbeat/expiry, under the run-state location. |
+
+## Stage 4 — packaging, roles, doc sweep, wiki (2026-10-02)
+
+| Decision | Detail |
+|---|---|
+| Packaging | A Claude Code plugin (skills, agents, templates, workflows; text-only, versioned) plus independently versioned `dnx` tool packages that the plugin calls. |
+| Starter roles | Worker (implementer), orchestrator / sub-orchestrator, expert / escalation, reviewer + test-triage. |
+| Doc sweep | All three: on-read check, scheduled sweep (proposes `[STALE?]` marks/bumps/archives for review), and a manual `dnx` command usable as a lint/CI check. Per-type staleness thresholds to be proposed in the doc-lifecycle spike. |
+| Wiki | Azure DevOps code wiki published from `docs/`; keep docs ADO-wiki compatible (relative links, no private details, an index/order file). |

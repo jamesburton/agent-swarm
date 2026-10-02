@@ -15,3 +15,4 @@ Canonical instructions for all agents (Claude, Codex, Gemini, …). `CLAUDE.md` 
 - Tools are invoked via `dnx <package-id>` (needs .NET 10+); don't write install steps beyond linking the .NET requirement.
 - Delegation: pass `model` explicitly — `haiku` simple lookups, `sonnet` standard work, `opus` complex reasoning.
 - Don't add features or refactors beyond what was asked.
+- Docs and memories are self-evolving: light front-matter, `created`/`updated` timestamps, `[STALE?]` marking, archive when obsolete, review on encounter. See [docs/doc-lifecycle.md](docs/doc-lifecycle.md).

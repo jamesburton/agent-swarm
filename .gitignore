@@ -1,2 +1,5 @@
 # Local documentation / tracking
 .docs/
+.claude/worktrees/
+spikes/00-probes/hooktest/hook-fired.log
+spikes/00-probes/hooktest/probe5.txt

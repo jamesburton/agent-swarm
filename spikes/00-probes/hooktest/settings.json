@@ -1,0 +1,1 @@
+{ "hooks": { "PermissionRequest": [ { "matcher": "*", "hooks": [ { "type": "command", "command": "pwsh -NoProfile -File C:/Development/agent-swarm/spikes/00-probes/hooktest/hook.ps1" } ] } ] } }

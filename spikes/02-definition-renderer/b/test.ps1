@@ -1,5 +1,5 @@
 # Throwaway checks for spike 2B. Run from this folder: pwsh ./test.ps1
-$here = $PSScriptRoot; $good = Join-Path $here '..\epic-delivery.md'
+$here = $PSScriptRoot; $good = Join-Path $here 'epic-delivery.md'
 $tmp = Join-Path ([IO.Path]::GetTempPath()) 'spike2b'; Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue; New-Item $tmp -ItemType Directory | Out-Null
 $src = Get-Content $good -Raw
 $cases = [ordered]@{

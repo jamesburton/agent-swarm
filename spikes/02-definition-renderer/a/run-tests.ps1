@@ -1,11 +1,11 @@
 # THROWAWAY: renders the example (md + yaml), checks outputs, runs the four invalid-input cases.
 $ErrorActionPreference = 'Continue'
 Set-Location $PSScriptRoot
-$ex = Get-Content ../epic-delivery.md -Raw
+$ex = Get-Content epic-delivery.md -Raw
 $out = Join-Path $env:TEMP 'spike2a'
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 
-dotnet run render.cs -- ../epic-delivery.md "$out/md"; "md exit=$LASTEXITCODE"
+dotnet run render.cs -- epic-delivery.md "$out/md"; "md exit=$LASTEXITCODE"
 dotnet run render.cs -- epic-delivery.yaml "$out/yaml"; "yaml exit=$LASTEXITCODE"
 dotnet run render.cs -- --check "$out/md"; "check exit=$LASTEXITCODE"
 "agents identical md vs yaml: " + (-not (Compare-Object (Get-ChildItem "$out/md/.claude" -Recurse -File | % { (Get-Content $_ -Raw) }) (Get-ChildItem "$out/yaml/.claude" -Recurse -File | % { (Get-Content $_ -Raw) })))

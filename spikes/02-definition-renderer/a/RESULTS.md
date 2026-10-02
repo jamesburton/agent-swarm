@@ -1,6 +1,6 @@
 # Spike 2A: typed canonical model renderer
 
-> THROWAWAY SPIKE. Run: `dotnet run render.cs -- ../epic-delivery.md <outDir>` (or `epic-delivery.yaml`); all checks: `pwsh run-tests.ps1`; parse outputs: `dotnet run render.cs -- --check <outDir>`.
+> THROWAWAY SPIKE. Run: `dotnet run render.cs -- epic-delivery.md <outDir>` (or `epic-delivery.yaml`); all checks: `pwsh run-tests.ps1`; parse outputs: `dotnet run render.cs -- --check <outDir>`.
 
 | Metric | Result |
 |---|---|

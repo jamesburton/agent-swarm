@@ -1,0 +1,306 @@
+// Hidden acceptance tests. To use: copy to LedgerKit.Tests/AcceptanceTests.cs (drop the .txt) and run `dotnet test`.
+using LedgerKit;
+using Xunit;
+
+namespace LedgerKit.Tests;
+
+public class AcceptanceTests
+{
+    private static Charge C(string id, string sku, decimal amount, int day, int version = 1, string account = "acme") =>
+        new(id, account, sku, amount, day, version);
+
+    // ---- targeted: corrections that the visible tests do not cover ----
+
+    [Fact]
+    public void Correction_DayOnly_ReordersDiscounts()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("a1", "api-call", 8m, 1), C("a2", "api-call", 8m, 2), C("a3", "api-call", 8m, 3) });
+        svc.Statement("acme");
+        svc.Ingest(new[] { C("a1", "api-call", 8m, 5, version: 2) });
+        var s = svc.Statement("acme");
+        Assert.Equal(new[] { "a2", "a3", "a1" }, s.Lines.Select(l => l.Charge.Id));
+        Assert.Equal(new[] { true, true, false }, s.Lines.Select(l => l.Discounted));
+    }
+
+    [Fact]
+    public void Correction_SumNeutralSwap_IsReflected()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("a1", "misc", 10m, 1), C("a2", "misc", 20m, 2) });
+        svc.Statement("acme");
+        svc.Ingest(new[] { C("a1", "misc", 20m, 1, version: 2), C("a2", "misc", 10m, 2, version: 2) });
+        Assert.Equal(new[] { 20m, 10m }, svc.Statement("acme").Lines.Select(l => l.Net));
+    }
+
+    [Fact]
+    public void Correction_SkuChange_ChangesDiscountEligibility()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("a1", "misc", 10m, 1) });
+        Assert.False(svc.Statement("acme").Lines[0].Discounted);
+        svc.Ingest(new[] { C("a1", "api-call", 10m, 1, version: 2) });
+        Assert.True(svc.Statement("acme").Lines[0].Discounted);
+    }
+
+    [Fact]
+    public void Correction_MovingChargeBetweenAccounts_BothStatementsFollow()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("a1", "misc", 10m, 1), C("a2", "misc", 20m, 2) });
+        svc.Statement("acme");
+        svc.Statement("globex");
+        svc.Ingest(new[] { C("a2", "misc", 20m, 2, version: 2, account: "globex") });
+        Assert.Equal(new[] { "a1" }, svc.Statement("acme").Lines.Select(l => l.Charge.Id));
+        Assert.Equal(new[] { "a2" }, svc.Statement("globex").Lines.Select(l => l.Charge.Id));
+    }
+
+    [Fact]
+    public void Correction_AccountMoveThenNewCharge_DoesNotRevivePastCacheEntry()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("a1", "misc", 10m, 1), C("a2", "misc", 20m, 2) });
+        Assert.Equal(2, svc.Statement("acme").Lines.Count);
+        svc.Ingest(new[] { C("a2", "misc", 20m, 2, version: 2, account: "globex") });
+        Assert.Single(svc.Statement("acme").Lines);
+        svc.Ingest(new[] { C("a3", "misc", 7m, 3) });
+        Assert.Equal(new[] { "a1", "a3" }, svc.Statement("acme").Lines.Select(l => l.Charge.Id));
+    }
+
+    [Fact]
+    public void Correction_KeepsArrivalSlotForSameDayTies()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("z", "misc", 2m, 5), C("m", "misc", 2m, 5), C("a", "misc", 2m, 5) });
+        svc.Statement("acme");
+        svc.Ingest(new[] { C("m", "misc", 3m, 5, version: 2) });
+        Assert.Equal(new[] { "z", "m", "a" }, svc.Statement("acme").Lines.Select(l => l.Charge.Id));
+        Assert.Equal(3m, svc.Statement("acme").Lines[1].Net);
+    }
+
+    [Fact]
+    public void Correction_ToLowerAmount_StillRoundsToEven()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("a1", "api-call", 50m, 1) });
+        svc.Statement("acme");
+        svc.Ingest(new[] { C("a1", "api-call", 10.03m, 1, version: 2) });
+        Assert.Equal(5.02m, svc.Statement("acme").Lines[0].Net);
+    }
+
+    [Fact]
+    public void Correction_DoesNotLeakIntoOtherAccounts()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("a1", "misc", 10m, 1), C("b1", "misc", 10m, 1, account: "globex") });
+        svc.Statement("acme");
+        svc.Statement("globex");
+        svc.Ingest(new[] { C("a1", "misc", 30m, 1, version: 2) });
+        Assert.Equal(33.00m, svc.Statement("acme").Total);
+        Assert.Equal(11.00m, svc.Statement("globex").Total);
+    }
+
+    // ---- redelivery and out-of-order feeds ----
+
+    [Fact]
+    public void Redelivery_OfOlderVersion_AfterCorrection_IsIgnoredAndKeepsCacheWarm()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("a1", "misc", 10m, 1) });
+        svc.Statement("acme");
+        svc.Ingest(new[] { C("a1", "misc", 12m, 1, version: 2) });
+        Assert.Equal(13.20m, svc.Statement("acme").Total);
+        svc.Ingest(new[] { C("a1", "misc", 10m, 1) });
+        Assert.Equal(13.20m, svc.Statement("acme").Total);
+        Assert.Equal(2, svc.Index.Misses);
+        Assert.Equal(1, svc.Index.Hits);
+    }
+
+    [Fact]
+    public void MergedOutOfOrderFeeds_NewestVersionWins()
+    {
+        var feedA = new[] { C("a1", "misc", 10m, 3), C("a2", "misc", 5m, 4) };
+        var feedB = new[] { C("a1", "misc", 40m, 1, version: 2) };
+        var svc = new BillingService();
+        var summary = svc.Ingest(FeedMerger.Merge(feedA, feedB));
+        Assert.Equal(new IngestSummary(2, 0, 1), summary);
+        var s = svc.Statement("acme");
+        Assert.Equal(new[] { 40m, 5m }, s.Lines.Select(l => l.Net));
+        Assert.Equal(new[] { 1, 4 }, s.Lines.Select(l => l.Charge.Day));
+    }
+
+    // ---- cache accounting ----
+
+    [Fact]
+    public void Index_ManyStatementsWithoutChanges_MissOnce()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("a1", "misc", 10m, 1), C("a2", "misc", 5m, 2) });
+        for (var i = 0; i < 10; i++)
+        {
+            svc.Statement("acme");
+        }
+
+        Assert.Equal(1, svc.Index.Misses);
+        Assert.Equal(9, svc.Index.Hits);
+    }
+
+    [Fact]
+    public void Index_EachEffectiveCorrection_CostsExactlyOneMiss()
+    {
+        var svc = new BillingService();
+        svc.Ingest(new[] { C("a1", "misc", 1m, 1) });
+        svc.Statement("acme");
+        for (var v = 2; v <= 12; v++)
+        {
+            svc.Ingest(new[] { C("a1", "misc", v, 1, version: v) });
+            svc.Ingest(new[] { C("a1", "misc", 0m, 1, version: v - 1) }); // stale redelivery, must not count
+            Assert.Equal(v * 1.10m, svc.Statement("acme").Total);
+        }
+
+        Assert.Equal(12, svc.Index.Misses);
+        Assert.Equal(0, svc.Index.Hits);
+    }
+
+    // ---- sweeps ----
+
+    [Fact]
+    public void Sweep_EveryCentAmountCorrection_IsReflected()
+    {
+        for (var cents = 1; cents <= 600; cents++)
+        {
+            var svc = new BillingService();
+            svc.Ingest(new[] { C("a1", "api-call", 3.33m, 1) });
+            svc.Statement("acme");
+            var amount = cents / 100m;
+            svc.Ingest(new[] { C("a1", "api-call", amount, 1, version: 2) });
+            Assert.Equal(Math.Round(amount * 0.5m, 2), svc.Statement("acme").Lines[0].Net);
+        }
+    }
+
+    [Fact]
+    public void Sweep_ChainedCorrections_BetweenStatements()
+    {
+        for (var chain = 1; chain <= 25; chain++)
+        {
+            var svc = new BillingService();
+            svc.Ingest(new[] { C("a1", "misc", 1m, 1), C("a2", "misc", 2m, 2) });
+            svc.Statement("acme");
+            for (var v = 2; v < 2 + chain; v++)
+            {
+                svc.Ingest(new[] { C(v % 2 == 0 ? "a1" : "a2", "misc", v * 3m, v % 2 == 0 ? 1 : 2, version: v) });
+            }
+
+            var fresh = new BillingService();
+            fresh.Ingest(new[] { C("a1", "misc", LastAmount("a1", chain), 1, version: LastVersion("a1", chain)), C("a2", "misc", LastAmount("a2", chain), 2, version: LastVersion("a2", chain)) });
+            Assert.Equal(fresh.Statement("acme").Render(), svc.Statement("acme").Render());
+        }
+
+        static int LastVersion(string id, int chain)
+        {
+            var want = id == "a1" ? 0 : 1;
+            for (var v = 1 + chain; v >= 2; v--)
+            {
+                if (v % 2 == want) { return v; }
+            }
+
+            return 1;
+        }
+
+        static decimal LastAmount(string id, int chain)
+        {
+            var v = LastVersion(id, chain);
+            return v == 1 ? (id == "a1" ? 1m : 2m) : v * 3m;
+        }
+    }
+
+    [Fact]
+    public void Sweep_RandomOperations_CachedStatementsEqualFreshOnes()
+    {
+        string[] accounts = { "acme", "globex", "initech" };
+        string[] skus = { "api-call", "storage-gb", "support", "misc" };
+
+        for (var seed = 0; seed < 300; seed++)
+        {
+            var rng = new Lcg(seed);
+            var svc = new BillingService();
+            var arrival = new List<string>();
+            var current = new Dictionary<string, Charge>();
+            var nextId = 0;
+
+            for (var step = 0; step < 40; step++)
+            {
+                var roll = rng.Next(10);
+                if (roll < 4 || current.Count == 0)
+                {
+                    var c = C("c" + nextId++, skus[rng.Next(4)], rng.Next(1, 5000) / 100m, rng.Next(1, 8), 1, accounts[rng.Next(3)]);
+                    arrival.Add(c.Id);
+                    current[c.Id] = c;
+                    svc.Ingest(new[] { c });
+                }
+                else if (roll < 8)
+                {
+                    var id = arrival[rng.Next(arrival.Count)];
+                    var old = current[id];
+                    var c = old with
+                    {
+                        Version = old.Version + 1,
+                        Amount = rng.Next(3) == 0 ? old.Amount : rng.Next(1, 5000) / 100m,
+                        Day = rng.Next(3) == 0 ? old.Day : rng.Next(1, 8),
+                        Sku = rng.Next(4) == 0 ? skus[rng.Next(4)] : old.Sku,
+                        Account = rng.Next(5) == 0 ? accounts[rng.Next(3)] : old.Account,
+                    };
+                    current[id] = c;
+                    svc.Ingest(new[] { c });
+                }
+                else
+                {
+                    var id = arrival[rng.Next(arrival.Count)];
+                    var old = current[id];
+                    svc.Ingest(new[] { old with { Version = rng.Next(1, old.Version + 1), Amount = 999m } });
+                }
+
+                if (rng.Next(3) == 0)
+                {
+                    var fresh = new BillingService();
+                    fresh.Ingest(arrival.Select(id => current[id]));
+                    foreach (var a in accounts)
+                    {
+                        Assert.True(
+                            fresh.Statement(a).Render() == svc.Statement(a).Render(),
+                            $"seed {seed} step {step} account {a}");
+                    }
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Sweep_StatementArithmetic_HoldsForAllCaches()
+    {
+        var svc = new BillingService();
+        for (var i = 0; i < 60; i++)
+        {
+            svc.Ingest(new[] { C("c" + (i % 7), i % 3 == 0 ? "api-call" : "misc", 1m + i, 1 + (i % 5), version: 1 + (i / 7)) });
+            var s = svc.Statement("acme");
+            Assert.Equal(s.Lines.Sum(l => l.Net), s.Subtotal);
+            Assert.Equal(s.Subtotal + s.Tax, s.Total);
+            Assert.Equal(svc.Ledger.CountFor("acme"), s.Lines.Count);
+        }
+    }
+
+    private sealed class Lcg
+    {
+        private uint state;
+
+        public Lcg(int seed) => this.state = (uint)seed * 2654435761u + 12345u;
+
+        public int Next(int maxExclusive) => this.Next(0, maxExclusive);
+
+        public int Next(int min, int maxExclusive)
+        {
+            this.state = (this.state * 1664525u) + 1013904223u;
+            return min + (int)((this.state >> 8) % (uint)(maxExclusive - min));
+        }
+    }
+}

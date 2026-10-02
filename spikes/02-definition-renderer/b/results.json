@@ -1,0 +1,25 @@
+{
+  "spike": "02",
+  "variant": "b",
+  "question": "Does a thin Markdown pass-through (section -> agent file + workflow template, no typed model) render the epic-delivery example and reject invalid input cleanly?",
+  "metrics": {
+    "exampleRenders": 1,
+    "agentFilesGenerated": 3,
+    "agentFrontMatterValid": 1,
+    "workflowNodeCheckPassed": 1,
+    "invalidCasesRejectedCleanly": 5,
+    "invalidCasesTested": 5,
+    "loc": 115,
+    "locNonBlankNonComment": 109,
+    "secondFormatEstimatedLoc": 40
+  },
+  "baseline": {},
+  "verdict": "works",
+  "notes": [
+    "node v24.19.0 --check passed on the generated workflow; not executed in the Workflow tool",
+    "swarm-only keys context/escalate-to are validated but dropped, not wired into the workflow",
+    "adding YAML works only by emitting the Markdown-shaped Sec bag, which is an untyped canonical model; C# needs the shape promoted to a type",
+    "front-matter values are verbatim strings; only model is value-validated"
+  ],
+  "howToRun": "dotnet run render.cs -- ../epic-delivery.md <outDir>   (checks: pwsh ./test.ps1)"
+}

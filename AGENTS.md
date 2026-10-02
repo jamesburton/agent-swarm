@@ -3,7 +3,7 @@
 Canonical instructions for all agents (Claude, Codex, Gemini, …). `CLAUDE.md` only points here.
 
 - Project summary and goals: [README.md](README.md)
-- Shared docs (published wiki): [docs/](docs/) — start at [docs/capabilities.md](docs/capabilities.md)
+- Shared docs (published wiki): [docs/](docs/) — start at [docs/capabilities.md](docs/capabilities.md); delivery design in [docs/workflow.md](docs/workflow.md)
 - Machine-wide conventions: `~/AGENTS.md`
 
 ## Conventions

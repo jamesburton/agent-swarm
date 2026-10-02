@@ -10,7 +10,8 @@ Pasteable **swarm definitions** that run as wide, orchestrated fleets of Claude 
 2. **Optimise tokens and speed.** Small models (e.g. Haiku/Sonnet) with tight, well-written instructions do the parallel fan-out; experts are summoned on demand.
 3. **Elevate on demand.** Clone any worker into an expert variant on a stronger model — forked context by default, shared context as an opt-in.
 4. **Trusted sign-off.** Understand and use what is (and is not) possible for approval/hand-off between sub-agents, other local sessions, and Remote Control (RC) / cloud sessions.
-5. **Clean tooling.** Tools are launched with minimal ceremony, e.g. `dnx <our-nuget-id>`, so the only setup requirement is a link to .NET 10+.
+5. **Lean orchestration and clean history.** Small agents under orchestrators/sub-orchestrators; worktree-isolated tasks, batched integration testing (one full-suite run per batch, bisect on failure), ticket-sized squashed commits per epic branch, merged `--no-ff` to the active branch. See [docs/workflow.md](docs/workflow.md).
+6. **Clean tooling.** Tools are launched with minimal ceremony, e.g. `dnx <our-nuget-id>`, so the only setup requirement is a link to .NET 10+.
 
 ## Scope of the first pass
 

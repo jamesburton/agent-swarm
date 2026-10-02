@@ -1,0 +1,8 @@
+{ "spike": "03", "variant": "b",
+  "question": "Does a pointer-based hand-off (<=150-word paragraph + .handoff/ notes folder the expert reads itself) give the opus expert enough to fix the seeded bug without repeating the tempting wrong fix?",
+  "metrics": { "promptTokensApprox": 172, "notesTokensApprox": 2662, "buildTimeSeconds": 34.3, "includesTemptingFixAsFailed": true,
+    "promptWords": 107, "notesMdTokensApprox": 488, "expertTokensToSolution": null, "correctFix": null, "repeatedWrongFix": null },
+  "baseline": {},
+  "verdict": "partial",
+  "notes": ["Build/size metrics measured; expert metrics pending (orchestrator runs the expert per run.md).", "notesTokensApprox = whole .handoff/ folder (chars/4); NOTES.md alone is 488.", "attempts.diff is reconstructed from transcript code blocks, not a real git diff."],
+  "howToRun": "dotnet run build-handoff.cs -- ../scenario handoff-output" }

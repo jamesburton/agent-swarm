@@ -1,0 +1,30 @@
+$ dotnet test QuotaKit.Tests (exit 1)
+  Determining projects to restore...
+  Restored C:\Development\agent-swarm\.claude\worktrees\agent-a1d5149ad78a41b5c\spikes\03-expert-handoff\.build-tmp-d45c51cb\QuotaKit\QuotaKit.csproj (in 1.6 sec).
+  Restored C:\Development\agent-swarm\.claude\worktrees\agent-a1d5149ad78a41b5c\spikes\03-expert-handoff\.build-tmp-d45c51cb\QuotaKit.Tests\QuotaKit.Tests.csproj (in 3.19 sec).
+  QuotaKit -> C:\Development\agent-swarm\.claude\worktrees\agent-a1d5149ad78a41b5c\spikes\03-expert-handoff\.build-tmp-d45c51cb\QuotaKit\bin\Debug\net10.0\QuotaKit.dll
+  QuotaKit.Tests -> C:\Development\agent-swarm\.claude\worktrees\agent-a1d5149ad78a41b5c\spikes\03-expert-handoff\.build-tmp-d45c51cb\QuotaKit.Tests\bin\Debug\net10.0\QuotaKit.Tests.dll
+Test run for C:\Development\agent-swarm\.claude\worktrees\agent-a1d5149ad78a41b5c\spikes\03-expert-handoff\.build-tmp-d45c51cb\QuotaKit.Tests\bin\Debug\net10.0\QuotaKit.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+  Failed QuotaKit.Tests.DailyQuotaTests.Used_SpringForwardDay_London_ExcludesPreviousEvening [4 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 6
+Actual:   10
+  Stack Trace:
+     at QuotaKit.Tests.DailyQuotaTests.Used_SpringForwardDay_London_ExcludesPreviousEvening() in C:\Development\agent-swarm\.claude\worktrees\agent-a1d5149ad78a41b5c\spikes\03-expert-handoff\.build-tmp-d45c51cb\QuotaKit.Tests\DailyQuotaTests.cs:line 112
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+  Failed QuotaKit.Tests.DailyQuotaTests.Used_SpringForwardDay_NewYork_ExcludesPreviousEvening [1 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 20
+Actual:   30
+  Stack Trace:
+     at QuotaKit.Tests.DailyQuotaTests.Used_SpringForwardDay_NewYork_ExcludesPreviousEvening() in C:\Development\agent-swarm\.claude\worktrees\agent-a1d5149ad78a41b5c\spikes\03-expert-handoff\.build-tmp-d45c51cb\QuotaKit.Tests\DailyQuotaTests.cs:line 102
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+Failed!  - Failed:     2, Passed:    12, Skipped:     0, Total:    14, Duration: 375 ms - QuotaKit.Tests.dll (net10.0)
+[xUnit.net 00:00:01.33]     QuotaKit.Tests.DailyQuotaTests.Used_SpringForwardDay_London_ExcludesPreviousEvening [FAIL]
+[xUnit.net 00:00:01.36]     QuotaKit.Tests.DailyQuotaTests.Used_SpringForwardDay_NewYork_ExcludesPreviousEvening [FAIL]

@@ -3,7 +3,7 @@
 Canonical instructions for all agents (Claude, Codex, Gemini, …). `CLAUDE.md` only points here.
 
 - Project summary and goals: [README.md](README.md)
-- Shared docs (published wiki): [docs/](docs/) — start at [docs/capabilities.md](docs/capabilities.md); delivery design in [docs/workflow.md](docs/workflow.md)
+- Shared docs (published wiki): [docs/](docs/) — start at [docs/capabilities.md](docs/capabilities.md); delivery design in [docs/workflow.md](docs/workflow.md); decisions in [docs/decisions.md](docs/decisions.md); design spec [docs/specs/2026-10-02-agent-swarm-design.md](docs/specs/2026-10-02-agent-swarm-design.md); plan [docs/plans/2026-10-02-spike-phase.md](docs/plans/2026-10-02-spike-phase.md)
 - Machine-wide conventions: `~/AGENTS.md`
 
 ## Conventions

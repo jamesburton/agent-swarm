@@ -1,7 +1,7 @@
 ---
 created: 2026-10-02
 updated: 2026-10-02
-status: draft-for-review
+status: current
 ---
 # agent-swarm design
 

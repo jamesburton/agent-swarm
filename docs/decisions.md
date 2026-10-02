@@ -1,3 +1,8 @@
+---
+created: 2026-10-02
+updated: 2026-10-02
+status: current
+---
 # Decision log
 
 Newest last. Each entry: decision, rationale, date. Revisit by adding a new entry, not editing history.
@@ -56,3 +61,4 @@ Newest last. Each entry: decision, rationale, date. Revisit by adding a new entr
 | 1 batched tests | **Adopt B** (adaptive size 2-8 + file-overlap pre-batching + halving bisect) | Chosen over A despite 1-2 more runs on the non-overlapping sandbox, for conflict-prone real work. Still to test: merge-conflict path and real overlapping edits. |
 | 2 definition renderer | **Adopt A** (typed canonical model + front-ends) | Generated Workflow scripts still only syntax-checked; run one in the real Workflow tool before relying on it. |
 | 3 expert hand-off | **Rerun**: harder scenario (transcript must not leak the cause), A/B/cold on Opus and Sonnet, 2 runs each (~12 expert runs) | First run inconclusive: all arms correct, 51.8k-57.1k tokens. |
+| 4 doc sweeper | **Adopt A** (deterministic); fix this repo's docs now | Done: front-matter added to 5 docs, orphans linked from AGENTS.md, statuses normalised; sweep now 0 errors. B's `--llm` check stays an optional follow-up. |

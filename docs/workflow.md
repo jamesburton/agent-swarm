@@ -1,3 +1,8 @@
+---
+created: 2026-10-02
+updated: 2026-10-02
+status: current
+---
 # Delivery workflow: agents, tests, batches, epics
 
 Design for tools and templates that spool out small agents, coordinate expensive tests, and land work as clean history. **Proposed, not built.** Capability constraints come from [capabilities.md](capabilities.md).

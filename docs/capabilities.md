@@ -1,3 +1,8 @@
+---
+created: 2026-10-02
+updated: 2026-10-02
+status: current
+---
 # Capabilities and limits
 
 Status of every claim: **documented** (per code.claude.com docs, fetched 2026-10-02) unless marked **unverified**. Nothing here has yet been tested in this repo; see [Verification backlog](#verification-backlog).

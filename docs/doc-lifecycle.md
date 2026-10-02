@@ -1,3 +1,8 @@
+---
+created: 2026-10-02
+updated: 2026-10-02
+status: current
+---
 # Self-evolving docs and memories
 
 Docs, notes and memories decay. They should be cheap to load, carry their own age, and be pruned or refined as they are used. **Proposed convention; applies to `docs/`, `.docs/`, and any lasting agent memory.**

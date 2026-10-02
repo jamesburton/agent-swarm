@@ -1,0 +1,30 @@
+{
+  "spike": "02",
+  "variant": "a",
+  "question": "Does a typed canonical model (Swarm/Role/Gate/Flow) with front-ends and renderers give a clean definition -> agents/workflow path, and how cheap is a second format?",
+  "metrics": {
+    "exampleRenders": true,
+    "filesRendered": 4,
+    "agentFrontmatterValid": true,
+    "agentFilesParsed": 3,
+    "workflowNodeCheck": "pass (node v24.19.0; md and yaml outputs)",
+    "yamlAndMdOutputsIdentical": true,
+    "invalidCasesRejectedCleanly": 5,
+    "invalidCases": ["unknown model alias", "duplicate role", "missing model on llm role", "missing orchestrator section", "extra/malformed heading"],
+    "locTotal": 322,
+    "locModel": 70,
+    "locMarkdownFrontEnd": 66,
+    "locYamlFrontEnd": 40,
+    "locRenderers": 105,
+    "stepsToAddYaml": 3
+  },
+  "baseline": {},
+  "verdict": "works",
+  "notes": [
+    "Workflow script is only syntax-checked (node --check); never run through the real Workflow tool, so agent()/pipeline() option names and top-level-await use are per docs, unverified at runtime.",
+    "YAML front-end is a hand-rolled subset (flat maps in lists), not real YAML; a production one needs YamlDotNet.",
+    "Model validation (aliases, required keys) lives in Swarm.MakeRole/Validate, shared by front-ends: adding YAML needed zero model changes. 'Missing/extra section' is my interpretation: no (code) orchestrator, >1 orchestrator, flow naming an undefined role/gate, or a heading outside the grammar.",
+    "Example epic-delivery.md was authored here (design Q&A text not in repo); keys are 'key: value' lines, other lines in a section become the prompt body, so prose lines starting 'word:' are misread as keys."
+  ],
+  "howToRun": "dotnet run render.cs -- ../epic-delivery.md <outDir>   (tests: pwsh run-tests.ps1)"
+}

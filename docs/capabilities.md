@@ -74,10 +74,8 @@ Model resolution order: per-call `model` → definition `model` → `CLAUDE_CODE
 - **Unverified conflict:** MS docs say `--yes` is .NET 11+, but MS blog/READMEs use it on .NET 10. Without it the confirmation prompt would hang a stdio launch — test on our SDK.
 - No Claude Code doc covers `dnx` directly; it is just a stdio `command` — **unverified** on Windows shell resolution.
 
-## Verification backlog
+## Verification results (probe 0, 2026-10-02; see [spikes/00-probes/RESULTS.md](../spikes/00-probes/RESULTS.md))
 
-1. `dnx --yes` on the installed SDK; `dnx` resolution from Claude Code's spawned shell.
-2. Per-call `model` override from a pasted definition; fork model behaviour.
-3. `PermissionRequest` hook in `-p`; RC approval model.
-4. SDK `AgentDefinition` fields (`hooks`, `isolation`).
-5. Per-sub-agent custom model string through a gateway.
+- **verified:** `dnx` has no `--yes` flag on SDK 10.0.401 or 11.0.0-rc.1 and does not prompt with stdin closed (one package tested); bare `dnx` fails in the Git Bash tool but `dnx.cmd` and PowerShell work; per-call `model: haiku` override works; `PermissionRequest` hooks fire in `claude -p` and an `allow` decision is honoured (latency of 237 s unexplained).
+- **documented:** forks stay on the parent model; SDK `AgentDefinition` has no `hooks`/`isolation`/`color`, so hooks are session-level.
+- **still unverified:** Remote Control's approval model; per-sub-agent custom model strings through a gateway; generated Workflow scripts have only been syntax-checked.

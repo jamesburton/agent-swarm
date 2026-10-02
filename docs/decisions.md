@@ -47,3 +47,10 @@ Newest last. Each entry: decision, rationale, date. Revisit by adding a new entr
 | Variants | Two built and measured per spike (A/B); a third option described only. |
 | Location | `spikes/NN-name/` on `main`, each labelled throwaway with a README (question, how to run, results, verdict). |
 | Execution | Parallel Sonnet agents, one worktree per variant; I integrate and review. |
+
+## Spike review (2026-10-02)
+
+| Spike | Decision | Notes |
+|---|---|---|
+| 0 probes | Results recorded | See `spikes/00-probes/RESULTS.md`; no `--yes` on `dnx`; use `dnx.cmd` under Git Bash. |
+| 1 batched tests | **Adopt B** (adaptive size 2-8 + file-overlap pre-batching + halving bisect) | Chosen over A despite 1-2 more runs on the non-overlapping sandbox, for conflict-prone real work. Still to test: merge-conflict path and real overlapping edits. |

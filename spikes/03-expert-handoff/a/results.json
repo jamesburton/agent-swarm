@@ -1,0 +1,19 @@
+{
+  "spike": "03",
+  "variant": "a",
+  "question": "Does a deterministic, structured distilled-summary hand-off fit in <=1,500 tokens and carry the failed attempts (including the tempting wrong fix) to a fresh expert?",
+  "metrics": {
+    "handoffTokensApprox": 1259,
+    "buildTimeSeconds": 29.9,
+    "includesTemptingFixAsFailed": true,
+    "sectionsPresent": ["Goal", "Current state", "Files that matter", "Failed attempts", "Rejected hypotheses", "Open question", "Constraints", "Expected result shape"]
+  },
+  "baseline": {},
+  "verdict": "partial",
+  "notes": [
+    "Builder and artifact verified; expert run NOT performed (orchestrator does it), so expert tokens, correctness and repeat-of-wrong-fix are unmeasured.",
+    "Build time is dominated by dotnet test (restore + build + run); builder logic itself is milliseconds.",
+    "Parsing is tied to the transcript's heading/'Idea:'/'Worker notes:' conventions; a free-form transcript would need an LLM distiller."
+  ],
+  "howToRun": "dotnet run build-handoff.cs -- ..\\scenario handoff-output.md"
+}

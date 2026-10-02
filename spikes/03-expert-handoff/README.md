@@ -32,7 +32,7 @@ Cause lives in a different component from the symptom (cache key omits correctio
 | C cold / Sonnet | 50,922 (5) | 50,380 (3) | 50,651 | 4 | 35/35, 35/35 |
 
 **Findings**
-- **Correctness did not differ.** All 12 fixed it correctly (all 35 pass), none edited tests, none stopped at the visible-green "sum in key" trap. Every run diagnosed the cache key; fixes were a per-account revision (10) or a global revision (2 Opus runs used a ledger-wide counter, one of which noted the extra rebuilds as a trade-off).
+- **Correctness did not differ.** All 12 fixed it correctly (all 35 pass), none edited tests, none stopped at the visible-green "sum in key" trap. Every run diagnosed the cache key; fixes were a per-account revision (9 runs) or a ledger-wide revision (3 Opus runs: A-1, A-2, B-2; B-2 noted the extra cross-account rebuilds as a trade-off).
 - **Cost differences are small** (~50-60k tokens each; most of that is fixed overhead). Structured hand-off (A) cut Opus tool calls from 12.5 (cold) to 7. Pointer-based (B) was the most expensive on both models. Cold Sonnet was the cheapest overall (4 tool calls).
 - **Caveats:** 2 runs per cell, so differences under ~10% are noise; the cold arm still located the cause quickly, so this scenario is still not hard; `subagent_tokens` includes fixed per-agent overhead; nothing here measures a *real* weak-worker transcript.
 

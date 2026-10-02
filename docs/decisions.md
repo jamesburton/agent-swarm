@@ -38,3 +38,12 @@ Newest last. Each entry: decision, rationale, date. Revisit by adding a new entr
 | Starter roles | Worker (implementer), orchestrator / sub-orchestrator, expert / escalation, reviewer + test-triage. |
 | Doc sweep | All three: on-read check, scheduled sweep (proposes `[STALE?]` marks/bumps/archives for review), and a manual `dnx` command usable as a lint/CI check. Per-type staleness thresholds to be proposed in the doc-lifecycle spike. |
 | Wiki | Azure DevOps code wiki published from `docs/`; keep docs ADO-wiki compatible (relative links, no private details, an index/order file). |
+
+## Stage 5 — spikes and review (2026-10-02)
+
+| Decision | Detail |
+|---|---|
+| Spikes | All four: batched-test simulator + bisect; definition model + Markdown renderer; worker → expert hand-off; doc-lifecycle sweeper. |
+| Variants | Two built and measured per spike (A/B); a third option described only. |
+| Location | `spikes/NN-name/` on `main`, each labelled throwaway with a README (question, how to run, results, verdict). |
+| Execution | Parallel Sonnet agents, one worktree per variant; I integrate and review. |

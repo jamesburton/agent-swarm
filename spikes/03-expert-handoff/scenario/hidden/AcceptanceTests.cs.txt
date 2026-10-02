@@ -1,0 +1,102 @@
+// Hidden acceptance tests. To use: copy to QuotaKit.Tests/AcceptanceTests.cs (drop the .txt) and run `dotnet test`.
+using QuotaKit;
+using Xunit;
+
+namespace QuotaKit.Tests;
+
+public class AcceptanceTests
+{
+    private static DateTimeOffset Utc(int y, int mo, int d, int h, int mi = 0) =>
+        new(y, mo, d, h, mi, 0, TimeSpan.Zero);
+
+    private static TimeZoneInfo Tz(string id) => TimeZoneInfo.FindSystemTimeZoneById(id);
+
+    [Theory]
+    [InlineData("America/New_York", 2026, 3, 8, 15, 2026, 3, 8, 5)]    // spring forward, midnight EST
+    [InlineData("America/New_York", 2026, 11, 1, 15, 2026, 11, 1, 4)]  // fall back, midnight still EDT (UTC-4)
+    [InlineData("America/New_York", 2026, 7, 15, 18, 2026, 7, 15, 4)]  // plain summer day
+    [InlineData("America/New_York", 2026, 1, 15, 18, 2026, 1, 15, 5)]  // plain winter day
+    [InlineData("Europe/London", 2026, 3, 29, 15, 2026, 3, 29, 0)]
+    [InlineData("Europe/London", 2026, 10, 25, 15, 2026, 10, 24, 23)]  // fall back, midnight BST (UTC+1)
+    [InlineData("Australia/Sydney", 2026, 4, 5, 10, 2026, 4, 4, 13)]   // fall back, midnight AEDT (UTC+11)
+    [InlineData("Australia/Sydney", 2026, 10, 4, 10, 2026, 10, 3, 14)] // spring forward, midnight AEST (UTC+10)
+    public void StartOfDay_IsTrueLocalMidnight(string zone, int y, int mo, int d, int h, int ey, int emo, int ed, int eh)
+    {
+        // Evaluate in the afternoon so the "current offset" differs from the midnight offset on DST days.
+        var instant = Utc(y, mo, d, h);
+        var start = DayBoundary.StartOfDay(instant, Tz(zone));
+        Assert.Equal(Utc(ey, emo, ed, eh), start);
+        Assert.Equal(TimeSpan.Zero, TimeZoneInfo.ConvertTime(start, Tz(zone)).TimeOfDay);
+    }
+
+    [Fact]
+    public void StartOfDay_LordHowe_ThirtyMinuteDst()
+    {
+        // 5 Apr 2026: Lord Howe falls back 02:00 +11:00 -> 01:30 +10:30. Midnight was +11:00.
+        var tz = Tz("Australia/Lord_Howe");
+        var start = DayBoundary.StartOfDay(Utc(2026, 4, 5, 6), tz);
+        Assert.Equal(Utc(2026, 4, 4, 13), start);
+    }
+
+    [Fact]
+    public void StartOfDay_Havana_MidnightDoesNotExist_StartsAtTransition()
+    {
+        // 8 Mar 2026: Cuba springs forward 00:00 -> 01:00, so the day starts at 01:00 CDT = 05:00Z.
+        Assert.Equal(Utc(2026, 3, 8, 5), DayBoundary.StartOfDay(Utc(2026, 3, 8, 18), Tz("America/Havana")));
+    }
+
+    [Fact]
+    public void StartOfDay_Havana_MidnightIsAmbiguous_StartsAtFirstOccurrence()
+    {
+        // 1 Nov 2026: Cuba falls back 01:00 CDT -> 00:00 CST; 00:00 happens twice. Day starts at the first (CDT, 04:00Z).
+        Assert.Equal(Utc(2026, 11, 1, 4), DayBoundary.StartOfDay(Utc(2026, 11, 1, 18), Tz("America/Havana")));
+    }
+
+    [Theory]
+    [InlineData("America/New_York", 2026, 3, 8, 23)]
+    [InlineData("America/New_York", 2026, 11, 1, 25)]
+    [InlineData("America/New_York", 2026, 6, 1, 24)]
+    [InlineData("Europe/London", 2026, 3, 29, 23)]
+    [InlineData("Europe/London", 2026, 10, 25, 25)]
+    [InlineData("UTC", 2026, 3, 8, 24)]
+    public void DayLength_ReflectsDstTransitions(string zone, int y, int mo, int d, int hours) =>
+        Assert.Equal(TimeSpan.FromHours(hours), DayBoundary.DayLength(Utc(y, mo, d, 15), Tz(zone)));
+
+    [Fact]
+    public void NextReset_FallBackDay_NewYork() =>
+        Assert.Equal(Utc(2026, 11, 2, 5), new DailyQuota(new[] { new QuotaPolicy("acme", 10, Tz("America/New_York")) })
+            .NextReset("acme", Utc(2026, 11, 1, 15)));
+
+    [Fact]
+    public void Property_EveryInstantMapsInsideItsOwnDay_AndStartIsIdempotent()
+    {
+        foreach (var zone in new[] { "America/New_York", "Europe/London", "Australia/Sydney", "Australia/Lord_Howe", "America/Havana", "Asia/Kolkata", "UTC" })
+        {
+            var tz = Tz(zone);
+            for (var t = Utc(2026, 1, 1, 0); t < Utc(2027, 1, 1, 0); t = t.AddMinutes(45))
+            {
+                var start = DayBoundary.StartOfDay(t, tz);
+                var next = DayBoundary.StartOfNextDay(t, tz);
+                Assert.True(start <= t && t < next, $"{zone} {t:o}: start={start:o} next={next:o}");
+                Assert.Equal(start, DayBoundary.StartOfDay(start, tz));
+                Assert.Equal(next, DayBoundary.StartOfDay(next, tz));
+                Assert.True(DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(start, tz).DateTime) ==
+                            DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(t, tz).DateTime), $"{zone} {t:o}");
+            }
+        }
+    }
+
+    [Fact]
+    public void Used_AgreesWithDailyTotals_OnSpringForwardDay()
+    {
+        var q = new DailyQuota(new[] { new QuotaPolicy("acme", 1000, Tz("America/New_York")) });
+        for (var t = Utc(2026, 3, 6, 0); t < Utc(2026, 3, 10, 0); t = t.AddHours(1))
+        {
+            q.Record("acme", t, 1);
+        }
+
+        // Local day of 8 Mar starts 05:00Z; hourly events 05:00Z..23:00Z inclusive = 19.
+        Assert.Equal(19, q.Used("acme", Utc(2026, 3, 8, 23)));
+        Assert.Equal(q.DailyTotals("acme")[new DateOnly(2026, 3, 8)], q.Used("acme", Utc(2026, 3, 9, 3, 59)));
+    }
+}

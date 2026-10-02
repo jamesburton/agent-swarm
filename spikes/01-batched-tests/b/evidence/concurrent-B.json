@@ -1,0 +1,33 @@
+{
+  "loadPercentBefore": 60.0,
+  "expirySec": 8,
+  "killedHolderPid": 103940,
+  "killedAtUtc": "2026-10-02T23:27:09.9430077Z",
+  "completed": true,
+  "exitCodes": {
+    "c2a": 0,
+    "c2b": 4
+  },
+  "victimError": {
+    "c2a": null,
+    "c2b": "error: testgate returned no result (exit 1): MSBUILD : error MSB4166: Child node \"3\" exited prematurely. Shutting down. Diagnostic information may be found in files in \"<temp>\\MSBuildTempvffa1qbe.egz\\\" and will be named MSBuild_*.failure.txt. This location can be changed by setting the MSBUILDDEBUGPATH environment variable to a different directory."
+  },
+  "survivorSuites": [
+    {
+      "inst": "c2a",
+      "label": "b1-batch-T001+T002+T003+T004",
+      "waitMs": 31361,
+      "reclaimed": true,
+      "acquiredUtc": "2026-10-02T23:27:20.8241652Z"
+    },
+    {
+      "inst": "c2a",
+      "label": "b2-batch-T005+T006",
+      "waitMs": 5,
+      "reclaimed": false,
+      "acquiredUtc": "2026-10-02T23:28:07.7648751Z"
+    }
+  ],
+  "secondsFromKillToReclaim": 10.88,
+  "note": "first run printed 3610.88 (local-time parse added the +1 h BST offset; concurrent.ps1 fixed); true value = 23:27:20.824 - 23:27:09.943 = 10.88 s"
+}

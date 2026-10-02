@@ -1,0 +1,50 @@
+[
+  {
+    "Task": "T008",
+    "Kind": "conflict",
+    "Stage": "merge",
+    "Batch": 3,
+    "ConflictingWith": [
+      "T007"
+    ],
+    "Files": [
+      "Lib01/Foo.cs"
+    ],
+    "GitOutput": "Auto-merging Lib01/Foo.cs\nCONFLICT (content): Merge conflict in Lib01/Foo.cs\nAutomatic merge failed; fix conflicts and then commit the result.",
+    "Rebase": "conflict",
+    "RebaseOutput": "Auto-merging Lib01/Foo.cs\nCONFLICT (content): Merge conflict in Lib01/Foo.cs\nRebasing (1/1)\rerror: could not apply 5737975... T008: edit Lib01/Foo.cs\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \u0022git add/rm \u003Cconflicted_files\u003E\u0022, then run \u0022git rebase --continue\u0022.\nhint: You can instead skip this commit: run \u0022git rebase --skip\u0022.\nhint: To abort and get back to the state before \u0022git rebase\u0022, run \u0022git rebase --abort\u0022.\nhint: Disable this message with \u0022git config set advice.mergeConflict false\u0022\nCould not apply 5737975... # T008: edit Lib01/Foo.cs",
+    "Final": "needs-worker"
+  },
+  {
+    "Task": "T010",
+    "Kind": "conflict",
+    "Stage": "merge",
+    "Batch": 3,
+    "ConflictingWith": [
+      "T009"
+    ],
+    "Files": [
+      "Lib05/Foo.cs"
+    ],
+    "GitOutput": "Auto-merging Lib05/Foo.cs\nCONFLICT (content): Merge conflict in Lib05/Foo.cs\nAutomatic merge failed; fix conflicts and then commit the result.",
+    "Rebase": "conflict",
+    "RebaseOutput": "Auto-merging Lib05/Foo.cs\nCONFLICT (content): Merge conflict in Lib05/Foo.cs\nRebasing (1/1)\rerror: could not apply 1f1c317... T010: edit Lib05/Foo.cs\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \u0022git add/rm \u003Cconflicted_files\u003E\u0022, then run \u0022git rebase --continue\u0022.\nhint: You can instead skip this commit: run \u0022git rebase --skip\u0022.\nhint: To abort and get back to the state before \u0022git rebase\u0022, run \u0022git rebase --abort\u0022.\nhint: Disable this message with \u0022git config set advice.mergeConflict false\u0022\nCould not apply 1f1c317... # T010: edit Lib05/Foo.cs",
+    "Final": "needs-worker"
+  },
+  {
+    "Task": "T012",
+    "Kind": "conflict",
+    "Stage": "merge",
+    "Batch": 3,
+    "ConflictingWith": [
+      "T011"
+    ],
+    "Files": [
+      "Lib04/Foo.cs"
+    ],
+    "GitOutput": "Auto-merging Lib04/Foo.cs\nCONFLICT (content): Merge conflict in Lib04/Foo.cs\nAutomatic merge failed; fix conflicts and then commit the result.",
+    "Rebase": "clean (requeued as rebased/E1/T012)",
+    "RebaseOutput": "",
+    "Final": "rebased-and-landed"
+  }
+]

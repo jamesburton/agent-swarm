@@ -1,0 +1,6 @@
+batch 1 size 4: T001,T002,T003,T004
+  REJECT T002: suite red on epic tip (culprit isolated)
+  REJECT T004: suite red on epic tip (culprit isolated)
+batch 2 size 2: T005,T006
+batch 3 size 4: T007,T008,T009,T010
+batch 4 size 8: T011,T012

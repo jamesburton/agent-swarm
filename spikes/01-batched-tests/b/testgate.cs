@@ -21,7 +21,11 @@ double expirySec = double.Parse(Opt("expiry-sec") ?? "60");
 double heartbeatSec = double.Parse(Opt("heartbeat-sec") ?? "5");
 int pollMs = int.Parse(Opt("poll-ms") ?? "200");
 string slotsDir = Path.Combine(Path.GetFullPath(state), "slots");
-Directory.CreateDirectory(slotsDir);
+// Windows MAX_PATH (260) breaks git/dotnet children and some tools even where .NET itself copes: refuse early, one line.
+if (slotsDir.Length > 200) { Console.Error.WriteLine($"error: state dir path is {slotsDir.Length} chars (limit 200): use a shorter --state"); return 2; }
+if (slots < 1) { Console.Error.WriteLine("error: --slots must be >= 1"); return 2; }
+try { Directory.CreateDirectory(slotsDir); }
+catch (Exception ex) { Console.Error.WriteLine("error: cannot create state dir: " + ex.Message.ReplaceLineEndings(" ")); return 4; }
 
 var wait = Stopwatch.StartNew();
 FileStream? held = null;
@@ -68,6 +72,7 @@ while (held is null)
     if (held is null) Thread.Sleep(pollMs);
 }
 long waitMs = wait.ElapsedMilliseconds;
+var acquiredAt = DateTime.UtcNow;
 
 using (var w = new StreamWriter(held, leaveOpen: true))
 {
@@ -111,5 +116,5 @@ long runMs = run.ElapsedMilliseconds;
 heartbeat.Dispose();
 Release();
 
-Console.WriteLine(JsonSerializer.Serialize(new { waitMs, runMs, slot, exitCode = exit, reclaimed }));
+Console.WriteLine(JsonSerializer.Serialize(new { waitMs, runMs, slot, exitCode = exit, reclaimed, acquiredUtc = acquiredAt, releasedUtc = DateTime.UtcNow }));
 return exit;

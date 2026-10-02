@@ -1,0 +1,348 @@
+{
+  "mode": "serial",
+  "prebatch": false,
+  "tasks": 12,
+  "fullSuiteRuns": 12,
+  "bisectRuns": 0,
+  "inferredRedSkipped": 0,
+  "batches": 12,
+  "sizeTrace": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "wallSeconds": 873.7,
+  "waitMs": 160,
+  "runMs": 795891,
+  "slotUtilisation": 1,
+  "tasksLanded": 12,
+  "returned": 0,
+  "rebasedAndLanded": 0,
+  "needsWorker": 0,
+  "rejectedRed": 0,
+  "conflictsHit": 0,
+  "landed": [
+    {
+      "id": "T001",
+      "batch": 1,
+      "commit": "ce820f7"
+    },
+    {
+      "id": "T002",
+      "batch": 2,
+      "commit": "cdec190"
+    },
+    {
+      "id": "T003",
+      "batch": 3,
+      "commit": "a65d719"
+    },
+    {
+      "id": "T004",
+      "batch": 4,
+      "commit": "c739cf3"
+    },
+    {
+      "id": "T005",
+      "batch": 5,
+      "commit": "b387e63"
+    },
+    {
+      "id": "T006",
+      "batch": 6,
+      "commit": "fbc2555"
+    },
+    {
+      "id": "T007",
+      "batch": 7,
+      "commit": "79f88c7"
+    },
+    {
+      "id": "T008",
+      "batch": 8,
+      "commit": "6f5e481"
+    },
+    {
+      "id": "T009",
+      "batch": 9,
+      "commit": "cbeeccb"
+    },
+    {
+      "id": "T010",
+      "batch": 10,
+      "commit": "a8257e4"
+    },
+    {
+      "id": "T011",
+      "batch": 11,
+      "commit": "77b548b"
+    },
+    {
+      "id": "T012",
+      "batch": 12,
+      "commit": "966ba6f"
+    }
+  ],
+  "rejected": [],
+  "returnedFile": "C:\\Development\\agent-swarm-wt\\s1c\\st-serial-f0\\runs\\f0\\returned.json",
+  "batchLog": [
+    {
+      "batch": 1,
+      "bisect": false,
+      "tasks": [
+        "T001"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 2,
+      "bisect": false,
+      "tasks": [
+        "T002"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 3,
+      "bisect": false,
+      "tasks": [
+        "T003"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 4,
+      "bisect": false,
+      "tasks": [
+        "T004"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 5,
+      "bisect": false,
+      "tasks": [
+        "T005"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 6,
+      "bisect": false,
+      "tasks": [
+        "T006"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 7,
+      "bisect": false,
+      "tasks": [
+        "T007"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 8,
+      "bisect": false,
+      "tasks": [
+        "T008"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 9,
+      "bisect": false,
+      "tasks": [
+        "T009"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 10,
+      "bisect": false,
+      "tasks": [
+        "T010"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 11,
+      "bisect": false,
+      "tasks": [
+        "T011"
+      ],
+      "result": "green"
+    },
+    {
+      "batch": 12,
+      "bisect": false,
+      "tasks": [
+        "T012"
+      ],
+      "result": "green"
+    }
+  ],
+  "suites": [
+    {
+      "label": "b1-batch-T001",
+      "waitMs": 27,
+      "runMs": 88387,
+      "acquiredUtc": "2026-10-02T22:34:43.6780207Z",
+      "releasedUtc": "2026-10-02T22:36:12.4129107Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b2-batch-T002",
+      "waitMs": 8,
+      "runMs": 67536,
+      "acquiredUtc": "2026-10-02T22:36:18.1549515Z",
+      "releasedUtc": "2026-10-02T22:37:25.9367675Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b3-batch-T003",
+      "waitMs": 3,
+      "runMs": 75589,
+      "acquiredUtc": "2026-10-02T22:37:31.6633096Z",
+      "releasedUtc": "2026-10-02T22:38:47.4926799Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b4-batch-T004",
+      "waitMs": 26,
+      "runMs": 83791,
+      "acquiredUtc": "2026-10-02T22:38:55.2377971Z",
+      "releasedUtc": "2026-10-02T22:40:19.4025678Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b5-batch-T005",
+      "waitMs": 13,
+      "runMs": 67750,
+      "acquiredUtc": "2026-10-02T22:40:26.7762628Z",
+      "releasedUtc": "2026-10-02T22:41:34.7333412Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b6-batch-T006",
+      "waitMs": 19,
+      "runMs": 65546,
+      "acquiredUtc": "2026-10-02T22:41:40.9009047Z",
+      "releasedUtc": "2026-10-02T22:42:46.670157Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b7-batch-T007",
+      "waitMs": 21,
+      "runMs": 53335,
+      "acquiredUtc": "2026-10-02T22:42:51.0478692Z",
+      "releasedUtc": "2026-10-02T22:43:44.6255723Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b8-batch-T008",
+      "waitMs": 17,
+      "runMs": 52429,
+      "acquiredUtc": "2026-10-02T22:43:49.0596219Z",
+      "releasedUtc": "2026-10-02T22:44:41.8604821Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b9-batch-T009",
+      "waitMs": 9,
+      "runMs": 67168,
+      "acquiredUtc": "2026-10-02T22:44:47.0490733Z",
+      "releasedUtc": "2026-10-02T22:45:54.4069439Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b10-batch-T010",
+      "waitMs": 6,
+      "runMs": 58794,
+      "acquiredUtc": "2026-10-02T22:46:00.1193996Z",
+      "releasedUtc": "2026-10-02T22:46:59.1600287Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b11-batch-T011",
+      "waitMs": 6,
+      "runMs": 60921,
+      "acquiredUtc": "2026-10-02T22:47:04.6401175Z",
+      "releasedUtc": "2026-10-02T22:48:05.8885101Z",
+      "slot": 0,
+      "reclaimed": false
+    },
+    {
+      "label": "b12-batch-T012",
+      "waitMs": 5,
+      "runMs": 54645,
+      "acquiredUtc": "2026-10-02T22:48:11.4303383Z",
+      "releasedUtc": "2026-10-02T22:49:06.2436523Z",
+      "slot": 0,
+      "reclaimed": false
+    }
+  ],
+  "overlapPairs": 0,
+  "overlapPairsSameBatchFirstPlacement": 0,
+  "overlapPairsSeparated": 0,
+  "naiveFixed4SameBatch": 0,
+  "touchesDerivedFromGit": true,
+  "derivedTouches": {
+    "T001": [
+      "Lib03/Foo2.cs"
+    ],
+    "T002": [
+      "Lib06/Foo1.cs"
+    ],
+    "T003": [
+      "Lib03/Foo.cs"
+    ],
+    "T004": [
+      "Lib01/Foo1.cs"
+    ],
+    "T005": [
+      "Lib06/Foo2.cs"
+    ],
+    "T006": [
+      "Lib03/Foo3.cs"
+    ],
+    "T007": [
+      "Lib01/Foo.cs"
+    ],
+    "T008": [
+      "Lib05/Foo.cs"
+    ],
+    "T009": [
+      "Lib04/Foo.cs"
+    ],
+    "T010": [
+      "Lib02/Foo2.cs"
+    ],
+    "T011": [
+      "Lib06/Foo3.cs"
+    ],
+    "T012": [
+      "Lib02/Foo1.cs"
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+# Cumulative record of everything tried (all reverted). Reconstructed from worker-transcript.md; hunks are against baseline.
+
+# Attempt 1 (worker-transcript.md:21)
+--- a/QuotaKit.Tests/DailyQuotaTests.cs
++++ b/QuotaKit.Tests/DailyQuotaTests.cs
+-        Assert.Equal(20, q.Used("acme", Utc(2026, 3, 8, 19)));
++        Assert.Equal(30, q.Used("acme", Utc(2026, 3, 8, 19)));
+
+# Attempt 2 (worker-transcript.md:35)
+--- a/QuotaKit/DayBoundary.cs
++++ b/QuotaKit/DayBoundary.cs
+-        return new DateTimeOffset(local.Date, local.Offset);
++        var start = new DateTimeOffset(local.Date, local.Offset);
++        if (tz.IsDaylightSavingTime(instant)) start = start.AddHours(1);
++        return start;
+
+# Attempt 3 (worker-transcript.md:58)
+--- a/QuotaKit/DayBoundary.cs
++++ b/QuotaKit/DayBoundary.cs
+-        return new DateTimeOffset(local.Date, local.Offset);
++        return new DateTimeOffset(local.Date, tz.BaseUtcOffset);
+
+# Attempt 4 (worker-transcript.md:79): no code recorded; computed instant.UtcDateTime.Date shifted by tz.GetUtcOffset(instant) in DayBoundary.StartOfDay.

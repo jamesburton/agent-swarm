@@ -1,0 +1,208 @@
+{
+  "spike": "01",
+  "variant": "a",
+  "question": "Does a fixed batch size N=4 with halving bisect cut full-suite runs vs one-suite-per-task, isolate seeded culprits, and does a testgate slot lock survive a crashed holder?",
+  "metrics": {
+    "fullSuiteMsMeasured": 236961,
+    "fullSuiteMsMin": 89361,
+    "fullSuiteMsMax": 445602,
+    "measuredRuns": 16,
+    "fullSuiteRuns.batched.failing0": 3,
+    "fullSuiteRuns.batched.failing1": 6,
+    "fullSuiteRuns.batched.failing2": 7,
+    "modelledCostSeconds.batched.failing0": 710.9,
+    "modelledCostSeconds.batched.failing1": 1421.8,
+    "modelledCostSeconds.batched.failing2": 1658.7,
+    "wallSeconds.batched.failing0": 917.1,
+    "wallSeconds.batched.failing1": 1946.1,
+    "wallSeconds.batched.failing2": 1437.4,
+    "culpritCorrect.all": true,
+    "slotUtilisation.contentionDemoWaitFraction": 0.19,
+    "crashedLockRecovered": true
+  },
+  "baseline": {
+    "fullSuiteRuns.serial.failing0": 12,
+    "fullSuiteRuns.serial.failing1": 12,
+    "fullSuiteRuns.serial.failing2": 12,
+    "modelledCostSeconds.serial.failing0": 2843.5,
+    "modelledCostSeconds.serial.failing1": 2843.5,
+    "modelledCostSeconds.serial.failing2": 2843.5,
+    "wallSeconds.serial.failing0": -1,
+    "wallSeconds.serial.failing1": -1,
+    "wallSeconds.serial.failing2": -1
+  },
+  "verdict": "works",
+  "notes": [
+    "Sandbox: 6 projects x 10 tests x 100 ms, 12 tasks, seed 1; machine shared and ~100% CPU so wall seconds are noisy; counts are the reliable metric.",
+    "modelledCost = fullSuiteRuns x mean runMs of all measured full-suite gate runs (includes incremental build; spread in fullSuiteMsMin/Max reflects machine load). Serial baseline is modelled as one run per task (batch size 1 == same code path), not executed, because each run took minutes under load."
+  ],
+  "howToRun": "dotnet run simulate.cs -- --root C:\\Development\\agent-swarm-wt\\s1a --size 4 --expiry-s 10",
+  "modes": {
+    "failing0.serial": {
+      "batchSize": 1,
+      "fullSuiteRuns": 12,
+      "measured": false
+    },
+    "failing0.batched": {
+      "batchSize": 4,
+      "fullSuiteRuns": 3,
+      "batches": 3,
+      "landed": [
+        "T001",
+        "T002",
+        "T003",
+        "T004",
+        "T005",
+        "T006",
+        "T007",
+        "T008",
+        "T009",
+        "T010",
+        "T011",
+        "T012"
+      ],
+      "returned": [],
+      "expectedCulpritPairs": [],
+      "measured": true,
+      "culpritCorrect": true,
+      "wallSeconds": 917.1,
+      "sumRunMs": 753159,
+      "sumWaitMs": 225,
+      "epicCommits": "12",
+      "epicLog": [
+        "ada4c1a T001: edit Lib03/Foo2.cs | 1",
+        "c952f61 T002: edit Lib06/Foo1.cs | 1",
+        "8e00e67 T003: edit Lib03/Foo.cs | 1",
+        "43e86a8 T004: edit Lib01/Foo1.cs | 1",
+        "8f1be9f T005: edit Lib06/Foo2.cs | 2",
+        "9473bc8 T006: edit Lib03/Foo3.cs | 2",
+        "f775aa6 T007: edit Lib01/Foo.cs | 2",
+        "8fa7210 T008: edit Lib05/Foo.cs | 2",
+        "313525c T009: edit Lib04/Foo.cs | 3",
+        "d912e82 T010: edit Lib02/Foo2.cs | 3",
+        "8c3ecee T011: edit Lib06/Foo3.cs | 3",
+        "15f4543 T012: edit Lib02/Foo1.cs | 3"
+      ]
+    },
+    "failing1.serial": {
+      "batchSize": 1,
+      "fullSuiteRuns": 12,
+      "measured": false
+    },
+    "failing1.batched": {
+      "batchSize": 4,
+      "fullSuiteRuns": 6,
+      "batches": 3,
+      "landed": [
+        "T001",
+        "T003",
+        "T004",
+        "T005",
+        "T006",
+        "T007",
+        "T008",
+        "T009",
+        "T010",
+        "T011",
+        "T012"
+      ],
+      "returned": [
+        "T002"
+      ],
+      "expectedCulpritPairs": [
+        "T001\u002BT002"
+      ],
+      "measured": true,
+      "culpritCorrect": true,
+      "wallSeconds": 1946.1,
+      "sumRunMs": 1791038,
+      "sumWaitMs": 152,
+      "epicCommits": "11",
+      "epicLog": [
+        "70683db T001: edit Lib03/Foo2.cs | 1",
+        "e2b4962 T003: edit Lib03/Foo.cs | 1",
+        "671af7a T004: edit Lib01/Foo1.cs | 1",
+        "720985e T005: edit Lib06/Foo2.cs | 2",
+        "0dcabb6 T006: edit Lib03/Foo3.cs | 2",
+        "ec220d6 T007: edit Lib01/Foo.cs | 2",
+        "4e23e02 T008: edit Lib05/Foo.cs | 2",
+        "58e0d70 T009: edit Lib04/Foo.cs | 3",
+        "d3f4385 T010: edit Lib02/Foo2.cs | 3",
+        "da0b7c4 T011: edit Lib06/Foo3.cs | 3",
+        "938e664 T012: edit Lib02/Foo1.cs | 3"
+      ]
+    },
+    "failing2.serial": {
+      "batchSize": 1,
+      "fullSuiteRuns": 12,
+      "measured": false
+    },
+    "failing2.batched": {
+      "batchSize": 4,
+      "fullSuiteRuns": 7,
+      "batches": 3,
+      "landed": [
+        "T001",
+        "T003",
+        "T005",
+        "T006",
+        "T007",
+        "T008",
+        "T009",
+        "T010",
+        "T011",
+        "T012"
+      ],
+      "returned": [
+        "T002",
+        "T004"
+      ],
+      "expectedCulpritPairs": [
+        "T001\u002BT002",
+        "T003\u002BT004"
+      ],
+      "measured": true,
+      "culpritCorrect": true,
+      "wallSeconds": 1437.4,
+      "sumRunMs": 1247174,
+      "sumWaitMs": 87,
+      "epicCommits": "10",
+      "epicLog": [
+        "d3230b2 T001: T001: edit Lib03/Foo2.cs | 1",
+        "deb832c T003: T003: edit Lib03/Foo.cs | 1",
+        "0af7535 T005: T005: edit Lib06/Foo2.cs | 2",
+        "966e9f3 T006: T006: edit Lib03/Foo3.cs | 2",
+        "a015a43 T007: T007: edit Lib01/Foo.cs | 2",
+        "32116f0 T008: T008: edit Lib05/Foo.cs | 2",
+        "b8d581e T009: T009: edit Lib04/Foo.cs | 3",
+        "b9f1ab6 T010: T010: edit Lib02/Foo2.cs | 3",
+        "10c30da T011: T011: edit Lib06/Foo3.cs | 3",
+        "53f7fc0 T012: T012: edit Lib02/Foo1.cs | 3"
+      ]
+    }
+  },
+  "contentionDemo": {
+    "jobs": 3,
+    "slots": 2,
+    "jobSeconds": 8,
+    "waitMs": [
+      787,
+      250,
+      19865
+    ],
+    "slotsUsed": [
+      1,
+      0,
+      1
+    ],
+    "waitFraction": 0.19
+  },
+  "crashDemo": {
+    "expirySeconds": 10,
+    "heldBeforeKill": true,
+    "lockLeftBehindAfterKill": true,
+    "newRunWaitMs": 4831,
+    "reclaimed": true,
+    "slot": 0
+  }
+}

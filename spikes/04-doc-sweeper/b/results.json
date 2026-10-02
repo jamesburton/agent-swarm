@@ -1,0 +1,33 @@
+{
+  "spike": "04", "variant": "b",
+  "question": "Can a deterministic front-matter/link/index sweeper plus a cheap haiku relevance check usefully flag stale docs?",
+  "metrics": {
+    "docsScanned": 7,
+    "errorsAtToday20261002": 10,
+    "warningsAtToday20261002": 3,
+    "docsMissingFrontMatter": 5,
+    "indexDriftDocs": 3,
+    "brokenLinks": 0,
+    "deterministicRuntimeMs": 193,
+    "deterministicWallSecondsInclCompile": 3.6,
+    "staleCandidatesAt20270301": 2,
+    "llmCallsMade": 2,
+    "llmCallCap": 8,
+    "llmTotalSeconds": 171,
+    "llmSecondsPerCall": 85,
+    "llmVerdicts": { "keep": 1, "refine": 1, "archive": 0, "unavailable": 0 },
+    "claudeMissingPathVerified": true,
+    "selftestChecks": 13
+  },
+  "baseline": { "deterministicRuntimeMs": 193 },
+  "verdict": "partial",
+  "notes": [
+    "5 of 7 docs have no front-matter, so they report errors and status 'unknown' and are never sent to the LLM.",
+    "With --today 2027-03-01 only the 2 front-mattered docs are stale candidates; both go to haiku.",
+    "Haiku keep on spike-phase plan reasoned from the real date (created today) rather than the forced 150d age: plausible, but shows the model cannot be told a fake today reliably.",
+    "Haiku refine on the design spec cites 'spike execution status unclear' - plausible, human review recommended.",
+    "~85 s per call on a loaded machine (full claude startup + ~60-file listing in prompt); a sweep of 8 docs costs ~10+ minutes.",
+    "claude missing verified by removing it from PATH: verdict 'unavailable', run completes, exit code unaffected."
+  ],
+  "howToRun": "dotnet run sweep.cs -- ../../../docs [--today 2027-03-01] [--json] [--llm]; dotnet run sweep.cs -- --selftest"
+}

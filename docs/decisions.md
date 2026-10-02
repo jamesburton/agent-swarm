@@ -55,3 +55,4 @@ Newest last. Each entry: decision, rationale, date. Revisit by adding a new entr
 | 0 probes | Results recorded | See `spikes/00-probes/RESULTS.md`; no `--yes` on `dnx`; use `dnx.cmd` under Git Bash. |
 | 1 batched tests | **Adopt B** (adaptive size 2-8 + file-overlap pre-batching + halving bisect) | Chosen over A despite 1-2 more runs on the non-overlapping sandbox, for conflict-prone real work. Still to test: merge-conflict path and real overlapping edits. |
 | 2 definition renderer | **Adopt A** (typed canonical model + front-ends) | Generated Workflow scripts still only syntax-checked; run one in the real Workflow tool before relying on it. |
+| 3 expert hand-off | **Rerun**: harder scenario (transcript must not leak the cause), A/B/cold on Opus and Sonnet, 2 runs each (~12 expert runs) | First run inconclusive: all arms correct, 51.8k-57.1k tokens. |

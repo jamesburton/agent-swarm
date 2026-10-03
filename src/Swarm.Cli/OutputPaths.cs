@@ -22,10 +22,16 @@ public static class OutputPaths
             throw new InvalidDataException($"refusing to write outside the output directory: '{key}'");
         }
 
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(outDir));
+        // Normalise to exactly one trailing separator; a filesystem root (C:\ or /) already has one.
+        var root = Path.GetFullPath(outDir);
+        if (!root.EndsWith(Path.DirectorySeparatorChar))
+        {
+            root += Path.DirectorySeparatorChar;
+        }
+
         var full = Path.GetFullPath(Path.Combine(root, key));
         var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        if (!full.StartsWith(root + Path.DirectorySeparatorChar, cmp))
+        if (!full.StartsWith(root, cmp))
         {
             throw new InvalidDataException($"refusing to write outside the output directory: '{key}'");
         }
@@ -34,6 +40,10 @@ public static class OutputPaths
     }
 
     /// <summary>Writes all files (UTF-8, no BOM), overwriting existing ones and never deleting; every path is verified before anything is written.</summary>
+    /// <remarks>
+    /// The renderers run entirely in memory beforehand, so the only remaining failures are disk or permission errors, which can leave earlier files already written (there is no rollback).
+    /// Known limits: symlinks and junctions inside <c>outDir</c> are not resolved, and reserved device names are not rejected (keys come from the renderers).
+    /// </remarks>
     /// <param name="outDir">The output directory (created when absent).</param>
     /// <param name="files">Relative path to content.</param>
     /// <returns>The relative paths written, in input order.</returns>

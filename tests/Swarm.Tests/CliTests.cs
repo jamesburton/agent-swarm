@@ -77,7 +77,10 @@ public class CliTests : IDisposable
     {
         var p = BadModel();
         Assert.NotEqual(TestSamples.Markdown(), File.ReadAllText(p));
-        AssertOneErrorLine(Run("validate", p), 1);
+        var r = Run("validate", p);
+        AssertOneErrorLine(r, 1);
+        Assert.Contains("model", r.Err);
+        Assert.Contains("gpt-9", r.Err);
     }
 
     [Fact] public void RenderWritesSixFilesMatchingRenderers()
@@ -184,7 +187,7 @@ public class CliTests : IDisposable
     [InlineData("\\\\srv\\share\\x")]
     [InlineData("")]
     public void GuardRejectsEscapes(string key) =>
-        Assert.ThrowsAny<Exception>(() => OutputPaths.Resolve(tmp, key));
+        Assert.Contains($"'{key}'", Assert.Throws<InvalidDataException>(() => OutputPaths.Resolve(tmp, key)).Message);
 
     [Fact] public void GuardAcceptsNestedRelativeKey() =>
         Assert.Equal(Path.Combine(Path.GetFullPath(tmp), ".claude", "agents", "x.md"), OutputPaths.Resolve(tmp, ".claude/agents/x.md"));
@@ -193,9 +196,78 @@ public class CliTests : IDisposable
     {
         var o = Path.Combine(tmp, "out");
         var files = new Dictionary<string, string> { ["ok.txt"] = "a", ["../evil.txt"] = "b" };
-        var ex = Assert.ThrowsAny<Exception>(() => OutputPaths.WriteAll(o, files));
+        var ex = Assert.Throws<InvalidDataException>(() => OutputPaths.WriteAll(o, files));
+        Assert.Contains("../evil.txt", ex.Message);
         Assert.DoesNotContain('\n', ex.Message);
         Assert.False(File.Exists(Path.Combine(o, "ok.txt")));
         Assert.False(File.Exists(Path.Combine(tmp, "evil.txt")));
+    }
+
+    [Fact] public void GuardAcceptsFilesystemRoot()
+    {
+        var root = Path.GetPathRoot(tmp)!;
+        Assert.Equal(Path.Combine(root, "a", "b.txt"), OutputPaths.Resolve(root, "a/b.txt"));
+    }
+
+    [Fact] public void GuardAcceptsOutDirWithTrailingSeparator() =>
+        Assert.Equal(Path.Combine(Path.GetFullPath(tmp), "x.txt"), OutputPaths.Resolve(tmp + Path.DirectorySeparatorChar, "x.txt"));
+
+    [Theory] [InlineData("")] [InlineData("   ")]
+    public void EmptyOutIsExit2(string o)
+    {
+        var r = Run("render", Sample("epic-delivery.md"), "--out", o);
+        AssertOneErrorLine(r, 2);
+        Assert.DoesNotContain("unexpected", r.Err);
+        Assert.Contains("--out", r.Err);
+    }
+
+    [Fact] public void OutGivenTwiceIsExit2() =>
+        AssertOneErrorLine(Run("render", Sample("epic-delivery.md"), "--out", Path.Combine(tmp, "a"), "--out", Path.Combine(tmp, "b")), 2);
+
+    [Fact] public void OutFollowedByOptionIsMissingValue()
+    {
+        var r = Run("render", Sample("epic-delivery.md"), "--out", "--foo");
+        AssertOneErrorLine(r, 2);
+        Assert.Contains("--out", r.Err);
+    }
+
+    [Fact] public void OutEqualsFormIsRejected() =>
+        AssertOneErrorLine(Run("render", Sample("epic-delivery.md"), "--out=" + Path.Combine(tmp, "o")), 2);
+
+    [Theory]
+    [InlineData("validate", "x.md", "--help")]
+    [InlineData("render", "x.md", "--out", "o", "-h")]
+    [InlineData("frobnicate", "--help")]
+    public void HelpAnywherePrintsUsage(params string[] args)
+    {
+        var r = Run(args);
+        Assert.Equal(0, r.Code);
+        Assert.Contains("swarm validate", r.Out);
+        Assert.Equal("", r.Err);
+    }
+
+    [Fact] public void VersionAnywherePrintsVersion()
+    {
+        var r = Run("validate", "x.md", "--version");
+        Assert.Equal(0, r.Code);
+        Assert.Matches(@"^\d+\.\d+\.\d+", r.Out);
+    }
+
+    [Theory]
+    [InlineData("--")]
+    [InlineData("validate", "--", "x.md")]
+    public void BareDoubleDashIsExit2(params string[] args)
+    {
+        var r = Run(args);
+        AssertOneErrorLine(r, 2);
+        Assert.Contains("'--'", r.Err);
+    }
+
+    [Fact] public void LineEndingsAreConsistentBetweenStreams()
+    {
+        var ok = Run("validate", Sample("epic-delivery.md"));
+        var bad = Run("frobnicate");
+        Assert.Equal("ok" + Environment.NewLine, ok.Out);
+        Assert.EndsWith(Environment.NewLine, bad.Err);
     }
 }

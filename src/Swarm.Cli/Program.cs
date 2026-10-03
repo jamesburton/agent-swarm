@@ -61,7 +61,7 @@ public static class Program
 
     static int Fail(TextWriter stderr, int code, string message)
     {
-        stderr.Write($"error: {message.ReplaceLineEndings(" ").Trim()}\n");
+        stderr.WriteLine($"error: {message.ReplaceLineEndings(" ").Trim()}");
         return code;
     }
 
@@ -72,14 +72,25 @@ public static class Program
             throw new UsageException("missing command; expected 'validate' or 'render' (see --help)");
         }
 
+        if (args.Any(a => a is "--help" or "-h"))
+        {
+            stdout.WriteLine(Usage);
+            return 0;
+        }
+
+        if (args.Contains("--version"))
+        {
+            stdout.WriteLine(Version());
+            return 0;
+        }
+
+        if (args.Contains("--"))
+        {
+            throw new UsageException("a bare '--' is not supported (see --help)");
+        }
+
         switch (args[0])
         {
-            case "--help" or "-h":
-                stdout.WriteLine(Usage);
-                return 0;
-            case "--version":
-                stdout.WriteLine(Version());
-                return 0;
             case "validate":
                 return Validate(Parse(args, withOut: false), stdout);
             case "render":
@@ -106,7 +117,18 @@ public static class Program
             var a = args[i];
             if (withOut && a == "--out")
             {
-                outDir = i + 1 < args.Length ? args[++i] : throw new UsageException("--out requires a directory");
+                if (outDir is not null)
+                {
+                    throw new UsageException("--out was given more than once");
+                }
+
+                outDir = i + 1 < args.Length && !args[i + 1].StartsWith('-')
+                    ? args[++i]
+                    : throw new UsageException("--out requires a directory");
+                if (string.IsNullOrWhiteSpace(outDir))
+                {
+                    throw new UsageException("--out must not be empty");
+                }
             }
             else if (a.StartsWith('-'))
             {

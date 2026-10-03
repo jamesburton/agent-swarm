@@ -63,7 +63,7 @@ status: current
 - [ ] **Step 1: Create projects**
 
 ```bash
-cd C:/Development/agent-swarm && mkdir -p src tests && cd src
+cd <repo-root> && mkdir -p src tests && cd src
 dotnet new sln -n Swarm
 dotnet new classlib -n Swarm.Core -f net10.0
 dotnet new classlib -n Swarm.Formats -f net10.0
@@ -94,7 +94,7 @@ dotnet add Swarm.Cli package System.CommandLine
 
 - [ ] **Step 3: Verify it builds**
 
-Run: `cd C:/Development/agent-swarm/src && dotnet build Swarm.sln`
+Run: `cd <repo-root>/src && dotnet build Swarm.sln`
 Expected: `Build succeeded` with 0 errors.
 
 - [ ] **Step 4: Commit** `git add src tests && git commit -m "Scaffold swarm solution"`
@@ -174,7 +174,7 @@ public class ValidatorTests
 
 - [ ] **Step 2: Run to confirm failure**
 
-Run: `cd C:/Development/agent-swarm && dotnet test tests/Swarm.Tests`
+Run: `cd <repo-root> && dotnet test tests/Swarm.Tests`
 Expected: FAIL (types not defined / compile errors).
 
 - [ ] **Step 3: Implement `Model.cs`** exactly the records above, and **`Validator.cs`**:
@@ -446,8 +446,8 @@ public class MarkdownFrontEndTests
 - [ ] **Step 5: Pack and run as a real `dnx` tool from a local feed**
 
 ```bash
-cd C:/Development/agent-swarm/src/Swarm.Cli && dotnet pack -c Release -o C:/Development/agent-swarm-wt/feed
-cd C:/Development/agent-swarm && dnx.cmd Swarm.Cli --version 0.1.0 --add-source C:/Development/agent-swarm-wt/feed -- validate tests/Swarm.Tests/Samples/epic-delivery.md
+cd <repo-root>/src/Swarm.Cli && dotnet pack -c Release -o <feed-folder>
+cd <repo-root> && dnx.cmd Swarm.Cli --version 0.1.0 --add-source <feed-folder> -- validate tests/Swarm.Tests/Samples/epic-delivery.md
 ```
 
   Expected: prints `ok`, exit 0. Record whether `dnx` prompts (probe 0: it should not) and the first-run time. If `--add-source` is not honoured by `dnx` in this form, record the working invocation.
@@ -461,7 +461,7 @@ cd C:/Development/agent-swarm && dnx.cmd Swarm.Cli --version 0.1.0 --add-source 
 - [ ] **Step 2:** Link it from `README.md` and `AGENTS.md`.
 - [ ] **Step 3: Verify the sweeper is clean**
 
-Run: `cd C:/Development/agent-swarm/spikes/04-doc-sweeper/a && dotnet run sweep.cs -- ../../../docs --today 2026-10-03`
+Run: `cd <repo-root>/spikes/04-doc-sweeper/a && dotnet run sweep.cs -- ../../../docs --today 2026-10-03`
 Expected: `0 errors`.
 - [ ] **Step 4: Commit** `git commit -m "Document the definition format"`.
 

@@ -48,7 +48,7 @@ Flow entries:
 | `gate:x` | Gate `x` must be green before the next stage. |
 | `tool:x` | Run tool `x` (a deterministic step). |
 
-Three front-ends build this model: Markdown (the reference format), YAML and a C# builder. They produce the same model; a test parses the sample in all three and requires identical results.
+Three front-ends build this model: Markdown (the reference format), YAML and a C# builder. They produce the same model. Parity is held by two pairwise tests against the Markdown sample: YAML versus Markdown, and the C# builder versus Markdown (the builder snippet below is itself checked against it).
 
 ### Markdown (reference format)
 
@@ -102,13 +102,13 @@ tool: squash
 
 Rules:
 
-- **Front-matter** (optional block between `---` lines): `name` is required, `description` is optional (default: empty). Other front-matter keys and lines are ignored. Text outside any `##` section (a title, a preamble) is ignored.
+- **Front-matter** (required: a block between `---` lines at the top of the file): `name` is required, `description` is optional (default: empty). Without the block, or without `name`, parsing fails with `missing front-matter key 'name'`. Other front-matter keys and lines are ignored. Text outside any `##` section (a title, a preamble) is ignored.
 - **Sections** start with a `##` heading, which must be one of `## name  (code)`, `## name  (llm)`, `## tool: name` or `## gate: name`. Names start with a letter and continue with letters, digits, `_` or `-`. Any other line starting with `##` followed by a space (or nothing) is an error, wherever it occurs. Lines starting with `###` are not headings.
 - **Key lines** (`key: value`) come first in a section; the first line that is not a key line starts the **prompt**, which runs to the next `##` heading. Blank lines before the prompt are skipped. Values are trimmed. Lists (`tools`, `args`, `flow`) are comma-separated; an empty entry such as `a,,b` is an error.
 - Allowed keys: `llm` role: `model`, `description`, `tools`, `maxTurns`, `effort`, `isolation`, `escalate-to`, `context`. `code` role: `flow` only. `tool`: `package`, `version`, `args`. `gate`: `kind`, `tool`. Unknown keys and repeated keys are errors, so a misspelling such as `escalate_to` fails instead of silently becoming prompt text. Only `llm` sections have a prompt; any other text in a `code`, `tool` or `gate` section is an error.
 - If `description` is omitted on an `llm` role it defaults to `<role> role of <swarm>`.
 
-**Caveat: a prompt whose first line looks like `Word: ...` is read as a key.** `Note: do X` as the first prompt line fails with `unknown key 'Note' in role '<role>'`, and a blank line before it does not help (blank lines before the prompt are skipped). Start the prompt with a line that is not shaped like `word:`, for example `Notes for the worker:` (the space before the colon makes it a prompt line), or reword the first sentence. Key-like lines after the first prompt line are ordinary prompt text.
+**Caveat: a prompt whose first line looks like `Word: ...` is read as a key.** `Note: do X` as the first prompt line fails with `unknown key 'Note' in role 'worker'`, and a blank line before it does not help (blank lines before the prompt are skipped). Start the prompt with a line that is not shaped like `word:`, for example `Notes for the worker:` (the text before the colon contains a space, so it does not match the key shape `^[A-Za-z][A-Za-z0-9_-]*:` and is read as prompt), or reword the first sentence. Key-like lines after the first prompt line are ordinary prompt text.
 
 ### YAML
 
@@ -146,7 +146,7 @@ gates:
 - Top-level keys: `name`, `description`, `roles`, `tools`, `gates`. Roles, tools and gates are mappings keyed by name. Every role has `kind: code|llm`. The `flow` list lives on the `code` role; `llm` roles take the same keys as in Markdown plus `prompt`.
 - Unknown keys, duplicate keys and malformed YAML are errors. **Anchors, aliases and merge keys (`&x`, `*x`, `<<`) are rejected**: definitions must be explicit, so shared hidden content cannot make a definition look valid while meaning something else.
 - **Empty values are rejected**: `effort:` (null or empty) fails. `""` and `[]` are allowed.
-- Plain scalars are accepted as text and then validated like any other value, so `version: 1.0` fails the pinned-version rule and `model: 5` fails the model rule. `maxTurns: 30` works.
+- Plain scalars are accepted as text and then validated like any other value, so `version: 1.0` fails the pinned-version rule (`tool 'squash': exact pinned version required (got '1.0')`) and `model: 5` fails the model rule. `maxTurns: 30` works.
 
 ### C# builder
 
@@ -184,7 +184,7 @@ var swarm = SwarmBuilder.Define("epic-delivery", "Deliver an epic with cheap wor
 var files = AgentFileRenderer.Render(swarm).Concat(WorkflowRenderer.Render(swarm)).ToList();
 ```
 
-`Build()` validates and throws a `SwarmException` with the first error. Names and tool lists are trimmed; other padded values (a model of `" haiku "`) are rejected, not trimmed (see [limitations](#5-limitations-and-known-gaps)).
+`Build()` validates and throws a `SwarmException` with the first error. Padding is handled field by field (see [limitations](#5-limitations-and-known-gaps)): names, tool lists and the prompt are trimmed; a padded model, effort, isolation or `escalate-to` fails validation; a padded description, context, gate kind or tool package is accepted as written.
 
 ## 2. Validation
 
@@ -214,7 +214,7 @@ Rules specific to a front-end:
 | Markdown | `name` in front-matter | `missing front-matter key 'name'` |
 | Markdown | front-matter closed | `unterminated front-matter` |
 | Markdown | known heading shape | `unrecognised heading '## gate batch-green' (expected '## name (code\|llm)', '## tool: name' or '## gate: name')` |
-| Markdown | known keys | `unknown key 'escalate_to' in role 'worker'`; for other sections `unknown key 'owner' in tool 'squash'` (a `code` section reads `in code 'orchestrator'`) |
+| Markdown | known keys | `unknown key 'escalate_to' in role 'worker'`; for other sections `unknown key 'owner' in tool 'squash'` (a `code` section reads `unknown key 'model' in code 'orchestrator'`) |
 | Markdown | no repeated keys | `duplicate key 'model' in 'worker'` |
 | Markdown | no stray text outside `llm` sections | `unexpected text in tool 'squash': 'some text'` |
 | Markdown | no empty list entries | `empty entry in list 'Read,, Write, Grep, Glob, Bash'` |
@@ -224,11 +224,38 @@ Rules specific to a front-end:
 | YAML | no anchors, aliases, merge keys | `invalid YAML (line 38): YAML anchors/aliases/merge keys are not supported; write the content explicitly` |
 | YAML | no repeated keys | `invalid YAML (line 14): Duplicate key effort` |
 | YAML | known keys | `invalid YAML (line 14): Property 'colour' not found on type 'Swarm.Formats.YamlFrontEnd+RoleDto'.` (the type name is an internal detail that shows through) |
-| YAML | no empty list entries | `empty entry in role 'reviewer' tools` (likewise `... role 'orchestrator' flow`) |
-| YAML | well-formed document | `invalid YAML (line 2): While parsing a node, did not find expected node content.`; `empty or non-mapping YAML document` |
+| YAML | code role takes only `kind` and `flow` | `unknown key 'model' in code role 'orchestrator'` |
+| YAML | llm role has no `flow` | `unknown key 'flow' in llm role 'worker'` |
+| YAML | wrongly typed value (for example `""` where a mapping is expected) | `invalid YAML (line 38): Exception during deserialization` |
+| YAML | no empty list entries | `empty entry in role 'reviewer' tools` (for the flow: `empty entry in role 'orchestrator' flow`) |
+| YAML | well-formed document | `invalid YAML (line 2): While parsing a node, did not find expected node content.`; `empty or non-mapping YAML document`. Other parser texts follow the same `invalid YAML (line N): ...` shape, or `invalid YAML: ...` without a line number |
+| YAML | empty role or tool entry | `role '<name>' is empty` and `tool '<name>' is empty` exist as defensive checks, but an empty value is already reported as `key '<name>' has no value`, so they are not reachable from a text file. A tool written as `squash: {}` is not empty: it fails with `tool 'squash': explicit package id required` |
 | C# builder | name, description, tool entries | `name must not be empty`; `description must not be null`; `empty tool entry in role 'w'` |
+| C# builder | no null arguments | `flow must not be null`; `configuration delegate for role 'w' must not be null`; `model of role 'w' must not be null` (likewise `description of role 'w' must not be null`, and the same for `effort`, `isolation`, `escalate-to`, `context`, `prompt`); `tools of role 'w' must not be null`; `package of tool 't' must not be null`; `version of tool 't' must not be null`; `args of tool 't' must not be null`; `kind of gate 'g' must not be null` |
 
-The first error found is reported. `swarm validate` and `swarm render` use the same rules; `render` adds the checks in section 3. CLI errors exit 2: `file not found: nope.md`, `unsupported file extension '.txt'; expected .md, .yaml or .yml`, `missing required option --out <dir>`, `--out requires a directory`, `unknown command 'bogus' (see --help)`.
+The first error found is reported. `swarm validate` and `swarm render` use the same rules; `render` adds the checks in section 3 (a definition can pass `validate` and still fail `render`).
+
+Usage and I/O errors exit 2 (also printed as `error: <message>`):
+
+| Cause | Message |
+|---|---|
+| No arguments | `missing command; expected 'validate' or 'render' (see --help)` |
+| First argument is not a command | `unknown command 'bogus' (see --help)` |
+| A bare `--` among the arguments | `a bare '--' is not supported (see --help)` |
+| An option other than `--out` (`--out` is not accepted by `validate`) | `unknown option '--bogus' (see --help)` |
+| A second file argument | `unexpected extra argument 'b.md'` |
+| No file argument | `missing <file> argument for 'validate'` |
+| `render` without `--out` | `missing required option --out <dir>` |
+| `--out` last, or followed by an option such as `-foo` | `--out requires a directory` |
+| `--out` given twice | `--out was given more than once` |
+| `--out ""` (or whitespace) | `--out must not be empty` |
+| `--out` names an existing file | `--out is a file, not a directory: <path>` |
+| File missing | `file not found: nope.md` |
+| Extension other than `.md`, `.yaml`, `.yml` | `unsupported file extension '.txt'; expected .md, .yaml or .yml` |
+| A rendered path would leave `--out` (not reachable with the shipped renderers) | `refusing to write outside the output directory: '../a'` |
+| Any other I/O or permission failure, or an unexpected exception | the operating system's message, or `unexpected failure: <ExceptionType>: <message>` |
+
+`--help` or `-h` anywhere in the arguments prints the usage and exits 0; so does `--version` (which prints the version).
 
 On any failure `swarm render` writes **nothing**: both renderers run fully in memory before the first file is written, and a path that would leave `--out` is refused. (An operating-system error such as a full disk or a denied write in the middle of writing is the one case that can leave earlier files behind.) Rendering overwrites files of the same name, never deletes, so files from an earlier render under other names stay.
 
@@ -336,7 +363,7 @@ if (!(args?.gates?.["batch-green"]?.green === true)) return halt("gate batch-gre
 }
 ```
 
-(The omitted parts of `epic-delivery.2.js` are the same header, `RESULT`, `state`/`unresolved`/`halt` declarations and final `return` as in script 1.)
+(Script 2 also differs from script 1 in its `meta.phases`, an `// Input: args.state...` comment, an extra `// Gate evidence: ...` comment and `let state = ... args.state ...`. The omitted parts are the same `RESULT`, `unresolved`/`halt` declarations and final `return` as in script 1.)
 
 ### Runbook
 
@@ -356,14 +383,16 @@ Save each workflow result to `.docs/runs/epic-delivery.<n>.result.json`; pass th
 ### Rules the generated files follow
 
 - **Line endings and encoding**: every generated file is written with LF line endings, as UTF-8 without a byte-order mark. The scripts and the runbook are pure ASCII (every non-ASCII character from the definition is escaped in the scripts). Agent files carry the description and prompt as written; a prompt may contain tabs (indented code is legitimate) but any other control character is an error, and a CRLF prompt is normalised to LF.
-- **Safe plain values**: in the agent front-matter, unquoted values are restricted by pattern so a value cannot split, comment out or corrupt the YAML. `model`, `effort` and `isolation` must match `[A-Za-z][A-Za-z0-9_.-]*`; each tool entry must match `[A-Za-z_][A-Za-z0-9_.:*()-]*`, which allows `Read` or `mcp__server__tool` but **rejects any entry containing a space or comma, such as `Bash(git commit:*)`**. Error: `role 'worker': field 'tools' has an unsafe value 'Bash(git commit:*)'`. The description is always written double-quoted with escapes.
-- **Role names are safe file stems**: 1 to 64 letters, digits, `_` or `-`, and not a Windows reserved device name such as `con`. Error: `role 'bad name': name is not a safe file name (1-64 letters, digits, '_' or '-'; not a reserved device name)`. The swarm name and the names of gates used in the flow follow the same rule (`swarm 'bad name': ...`, `gate '...': ...`). Role names that differ only by case are rejected: `role 'Worker': name collides case-insensitively with another role`.
+- **Safe plain values**: in the agent front-matter, unquoted values are restricted by pattern so a value cannot split, comment out or corrupt the YAML. `model`, `effort` and `isolation` must match `[A-Za-z][A-Za-z0-9_.-]*`; each tool entry must match `[A-Za-z_][A-Za-z0-9_.:*()-]*`, which allows `Read` or `mcp__server__tool` but **rejects any entry containing a space or comma, such as `Bash(git commit:*)`**. Error: `role 'worker': field 'tools' has an unsafe value 'Bash(git commit:*)'`. A comma inside an entry is rejected too (it would silently become two tools): `role 'worker': field 'tools' has an unsafe value 'Read,Edit'`. The description is always written double-quoted with escapes.
+- **Role names are safe file stems**: 1 to 64 letters, digits, `_` or `-`, and not a Windows reserved device name such as `con`. Error: `role 'bad name': name is not a safe file name (1-64 letters, digits, '_' or '-'; not a reserved device name)`. The swarm name and the names of gates used in the flow follow the same rule (`swarm 'bad name': name is not a safe file name (1-64 letters, digits, '_' or '-'; not a reserved device name)`, `gate 'g.x': name is not a safe file name (1-64 letters, digits, '_' or '-'; not a reserved device name)`). Role names that differ only by case are rejected: `role 'Worker': name collides case-insensitively with another role`.
 - **An `llm` role must list tools**: an empty `tools` list is an error, because Claude Code would give the agent every tool. Error: `role 'worker': tools list is empty (Claude Code would grant all tools); list tools explicitly`. (`swarm validate` accepts such a role; `swarm render` rejects it.) A missing model is likewise rejected rather than written empty.
-- **Control characters**: `role 'worker': description contains a control character`, `role 'worker': prompt contains a control character`.
-- **Runbook commands are copy-paste safe**: package ids, versions and tool arguments may contain only letters, digits and `_ . / : = @ + , -` (error: `tool 't': argument 'a b' is unsafe (allowed characters: letters, digits and _ . / : = @ + , -)`). A tool argument of `--yes` or `-y` is refused (`tool 't': argument '--yes' is not allowed (dnx must not auto-confirm)`). When a tool has arguments the command is `dnx <package>@<version> -- <args>`; the separator keeps the arguments away from dnx's own option parser.
+- **Control characters**: `role 'worker': description contains a control character`, `role 'worker': prompt contains a control character`. U+2028 and U+2029 (Unicode line separators) are treated like control characters in the description (same message) and in the plain fields, where the error is the unsafe-value one (`role 'worker': field 'tools' has an unsafe value 'Re?ad'`; the character is shown as `?`). A prompt body, in contrast, may contain them. A plain field other than the tool list fails the same way, for example `claude-a b` as a model: `role 'worker': field 'model' has an unsafe value 'claude-a b'`.
+- **Runbook commands are copy-paste safe**: tool package ids, versions and arguments may contain only letters, digits and `_ . / : = @ + , -`, and a gate `kind` only letters, digits and `_ . -`. Errors: `tool 't': package 'P Q' is unsafe (allowed characters: letters, digits and _ . / : = @ + , -)`, `tool 't': argument 'a b' is unsafe (allowed characters: letters, digits and _ . / : = @ + , -)`, and `gate 'g': kind 'unit test' is unsafe (allowed characters: letters, digits and _ . -)`. The same message shape exists for a version (`tool 't': version '...' is unsafe ...`), but a version that passes the pinned-version rule is always safe, so only a definition that skipped validation can reach it. **`swarm validate` accepts all of these definitions; only `swarm render` rejects them** (for example `kind: unit test`). A tool argument of `--yes` or `-y` is refused (`tool 't': argument '--yes' is not allowed (dnx must not auto-confirm)`). When a tool has arguments the command is `dnx <package>@<version> -- <args>`; the separator keeps the arguments away from dnx's own option parser.
 - **Role stages**: a role stage cannot be the first stage of the first segment (it would receive raw tasks, not completed work): `role 'reviewer': a Role stage cannot be the first stage of the first segment (it would receive raw tasks, not completed work)`.
 
-All of these render-time messages are pinned verbatim by tests.
+Definitions that skip validation (hand-built `SwarmDefinition` records, not reachable from the three front-ends) meet extra defensive checks: `role 'worker': model is missing`, `flow stage 'ghost' (Gate) does not exist`, `flow stage 'ghost' (Tool) does not exist`, `flow stage 'o' does not name an llm role`, `gate 'g': tool 'ghost' does not exist` and `tool 't': version '1.0' is not an exact pinned version`.
+
+All of these render-time messages are pinned verbatim by tests, and a test checks that every pinned message appears word for word in this page.
 
 ## 4. How the output runs
 
@@ -432,7 +461,7 @@ By convention of the runbook (the tool does not create these folders): each work
 - **Case-insensitive duplicate names are not a validation error.** Validation compares names exactly (`Worker` and `worker` are different), but rendering rejects role names that collide case-insensitively, because they would name the same file on a case-insensitive file system (Windows, and macOS by default).
 - **Self-escalation is accepted.** `escalate-to` naming the role itself passes validation.
 - **`claude-` on its own is accepted as a model.** Any value starting with `claude-` is allowed; only the `[A-Za-z][A-Za-z0-9_.-]*` shape is checked later.
-- **C# builder padding.** The builder trims names and tool lists but rejects, not trims, padded values elsewhere (for example `Model(" haiku ")` fails with `unknown model alias ' haiku '`). Markdown values are trimmed.
+- **C# builder padding.** The builder trims names, tool entries and the prompt. A padded `Model`, `Effort`, `Isolation` or `EscalateTo` fails `Build()` (for example `Model(" haiku ")`: `role 'w': unknown model alias ' haiku ' (allowed: haiku, sonnet, opus, fable, inherit or claude-<id>)`). A padded description, context, gate kind or tool package is accepted as written; a padded gate kind or package passes `Build()` and is rejected only by `swarm render`, and a padded context silently loses its effect. Markdown values are trimmed.
 - **Markdown specifics.** Repeated keys in the front-matter overwrite silently (repeated keys in a section are an error). A prompt line starting `## ` is always read as a heading. The first-line `Word: ...` caveat above applies.
 - **YAML specifics.** Empty values such as `prompt:` are rejected on purpose. Unknown-property errors show an internal type name.
 - **`--out` values starting with `-`** (for example `--out -foo`) are rejected as a missing directory; use `./-foo`.

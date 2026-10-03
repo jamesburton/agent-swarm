@@ -84,6 +84,10 @@ public class DocMessagesTests
         { Yaml("    version: 0.1.0\n", "    version: 1.0\n"), "tool 'squash': exact pinned version required (got '1.0')" },
         { Yaml("\"gate:batch-green\", ", "\"\", "), "empty entry in role 'orchestrator' flow" },
         { Yaml("tools: [Read, Grep, Glob]", "tools: [Read, \"\", Glob]"), "empty entry in role 'reviewer' tools" },
+        { Yaml("    kind: code\n    flow:", "    kind: code\n    model: haiku\n    flow:"), "unknown key 'model' in code role 'orchestrator'" },
+        { Yaml("    effort: low\n", "    effort: low\n    flow: [a]\n"), "unknown key 'flow' in llm role 'worker'" },
+        { Yaml("  squash:\n    package: Swarm.Squash\n    version: 0.1.0\n", "  squash: \"\"\n"), "invalid YAML (line 38): Exception during deserialization" },
+        { Yaml("  squash:\n    package: Swarm.Squash\n    version: 0.1.0\n", "  squash: {}\n"), "tool 'squash': explicit package id required" },
     };
 
     [Theory]
@@ -99,6 +103,15 @@ public class DocMessagesTests
         { () => SwarmBuilder.Define("s", "d").Orchestrator("o", ""), "empty flow entry" },
         { () => Base().Llm("w", r => r.Model(" haiku ")).Build(), "role 'w': unknown model alias ' haiku ' (allowed: haiku, sonnet, opus, fable, inherit or claude-<id>)" },
         { () => Base().Llm("w", r => r.Tools("Read", " ")), "empty tool entry in role 'w'" },
+        { () => Base().Llm("w", null!), "configuration delegate for role 'w' must not be null" },
+        { () => Base().Llm("w", r => r.Model(null!)), "model of role 'w' must not be null" },
+        { () => Base().Llm("w", r => r.Description(null!)), "description of role 'w' must not be null" },
+        { () => Base().Llm("w", r => r.Tools(null!)), "tools of role 'w' must not be null" },
+        { () => Base().Tool("t", null!, "1.0.0"), "package of tool 't' must not be null" },
+        { () => Base().Tool("t", "P", null!), "version of tool 't' must not be null" },
+        { () => Base().Tool("t", "P", "1.0.0", null!), "args of tool 't' must not be null" },
+        { () => Base().Gate("g", null!), "kind of gate 'g' must not be null" },
+        { () => SwarmBuilder.Define("s", "d").Orchestrator("o", null!), "flow must not be null" },
     };
 
     [Theory]
@@ -137,7 +150,107 @@ public class DocMessagesTests
         { Valid("reviewer worker*"), "role 'reviewer': a Role stage cannot be the first stage of the first segment (it would receive raw tasks, not completed work)" },
         { Valid("worker* tool:t", b => b.Tool("t", "P", "1.0.0", "--yes")), "tool 't': argument '--yes' is not allowed (dnx must not auto-confirm)" },
         { Valid("worker* tool:t", b => b.Tool("t", "P", "1.0.0", "a b")), "tool 't': argument 'a b' is unsafe (allowed characters: letters, digits and _ . / : = @ + , -)" },
+        { Valid("worker* tool:t", b => b.Tool("t", "P Q", "1.0.0")), "tool 't': package 'P Q' is unsafe (allowed characters: letters, digits and _ . / : = @ + , -)" },
+        { Valid("worker* gate:g", b => b.Tool("t", "P", "1.0.0").Gate("g", "unit test", "t")), "gate 'g': kind 'unit test' is unsafe (allowed characters: letters, digits and _ . -)" },
+        { Valid("worker* gate:g.x", b => b.Gate("g.x", "test")), $"gate 'g.x': {UnsafeName}" },
+        { WithRole(r => r.Tools("Read").Description("a\u2028b")), "role 'worker': description contains a control character" },
+        { WithRole(r => r.Tools("Re\u2028ad")), "role 'worker': field 'tools' has an unsafe value 'Re?ad'" },
+        { WithRole(r => r.Tools("Read").Model("claude-a b")), "role 'worker': field 'model' has an unsafe value 'claude-a b'" },
+        { HandBuilt(d => d with { Roles = [.. d.Roles.Select(r => r.Name == "worker" ? r with { Model = null } : r)] }), "role 'worker': model is missing" },
+        { HandBuilt(d => d with { Flow = [.. d.Flow, new Stage(StageType.Gate, "ghost")] }), "flow stage 'ghost' (Gate) does not exist" },
+        { HandBuilt(d => d with { Flow = [.. d.Flow, new Stage(StageType.Tool, "ghost")] }), "flow stage 'ghost' (Tool) does not exist" },
+        { HandBuilt(d => d with { Flow = [new Stage(StageType.Fanout, "o")] }), "flow stage 'o' does not name an llm role" },
+        { HandBuilt(d => d with { Gates = [new Gate("g", "test", "ghost")], Flow = [.. d.Flow, new Stage(StageType.Gate, "g")] }), "gate 'g': tool 'ghost' does not exist" },
+        { HandBuilt(d => d with { Tools = [new ToolDef("t", "P", "1.0", [])], Flow = [.. d.Flow, new Stage(StageType.Tool, "t")] }), "tool 't': version '1.0' is not an exact pinned version" },
     };
+
+    // A validated definition edited afterwards, as a hand-built SwarmDefinition record that skipped validation would be.
+    static SwarmDefinition HandBuilt(Func<SwarmDefinition, SwarmDefinition> edit) => edit(Valid("worker*"));
+
+    [Fact]
+    public void PromptMayContainLineSeparators()
+    {
+        var files = AgentFileRenderer.Render(WithRole(r => r.Tools("Read").Prompt("a\u2028b")));
+        Assert.Contains("a\u2028b", files[".claude/agents/worker.md"]);
+    }
+
+    [Fact]
+    public void ValidateAcceptsWhatOnlyRenderRejects()
+    {
+        // Gate kind, tool package and tool argument with spaces pass validation; render rejects them.
+        var d = Valid("worker* gate:g tool:t", b => b.Tool("t", "P Q", "1.0.0", "a b").Gate("g", "unit test", "t"));
+        Assert.Empty(Validator.Check(d));
+        Assert.Throws<SwarmException>(() => WorkflowRenderer.Render(d));
+    }
+
+    [Fact]
+    public void BuilderPaddingBehaviour()
+    {
+        string Prompt(string p) => SwarmBuilder.Define("s", "d").Orchestrator("o", "w*").Llm("w", r => r.Model("haiku").Tools("Read").Prompt(p)).Build().Roles.Single(r => r.Name == "w").Prompt;
+        Assert.Equal("p", Prompt("  p  "));
+        var padded = SwarmBuilder.Define("s", "d").Orchestrator("o", "w*", "gate:g").Llm("w", r => r.Model("haiku").Tools("Read").Description(" d ").Prompt("p"))
+            .Tool("t", " P ", "1.0.0").Gate("g", " test ", "t").Build();
+        Assert.Equal(" d ", padded.Roles.Single(r => r.Name == "w").Description);
+        Assert.Equal(" test ", padded.Gates.Single().Kind);
+        Assert.Equal(" P ", padded.Tools.Single().Package);
+        Assert.Throws<SwarmException>(() => WorkflowRenderer.Render(padded));
+        Assert.Equal("role 'w': unknown model alias ' haiku ' (allowed: haiku, sonnet, opus, fable, inherit or claude-<id>)",
+            Assert.Throws<SwarmException>(() => SwarmBuilder.Define("s", "d").Orchestrator("o", "w*").Llm("w", r => r.Model(" haiku ").Tools("Read")).Build()).Message);
+    }
+
+    // Messages that are exact for the test but are not quoted verbatim in the document (values are test-specific).
+    static readonly HashSet<string> NotInDoc =
+    [
+        $"role '{new string('a', 65)}': {UnsafeName}",
+        $"role 'con': {UnsafeName}",
+        "role 'worker': field 'tools' has an unsafe value 'Re?ad'",
+        "role 'worker': field 'model' has an unsafe value 'claude-a b'",
+    ];
+
+    // Fragments of CLI and path messages (the full text contains a path or is built from options).
+    static readonly string[] CliFragments =
+    [
+        "missing command; expected 'validate' or 'render' (see --help)",
+        "a bare '--' is not supported (see --help)",
+        "--out was given more than once",
+        "--out must not be empty",
+        "--out requires a directory",
+        "--out is a file, not a directory: ",
+        "unknown option '--bogus' (see --help)",
+        "unexpected extra argument 'b.md'",
+        "missing <file> argument for 'validate'",
+        "missing required option --out <dir>",
+        "unknown command 'bogus' (see --help)",
+        "file not found: nope.md",
+        "unsupported file extension '.txt'; expected .md, .yaml or .yml",
+        "refusing to write outside the output directory: '../a'",
+    ];
+
+    [Fact]
+    public void EveryPinnedMessageAppearsInTheDocument()
+    {
+        var root = RepoRoot();
+        var doc = File.ReadAllText(Path.Combine(root, "docs", "definition-format.md")).Replace("\\|", "|");
+        var pinned = MarkdownCases().Concat(YamlCases()).Concat(BuilderCases()).Concat(RenderCases())
+            .Select(r => (string)r[1]).Concat(CliFragments).Where(m => !NotInDoc.Contains(m)).Distinct();
+        var missing = pinned.Where(m => !doc.Contains(m, StringComparison.Ordinal)).ToList();
+        Assert.True(missing.Count == 0, "not in docs/definition-format.md:\n" + string.Join("\n", missing));
+    }
+
+    static string RepoRoot()
+    {
+        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
+        {
+            if (File.Exists(Path.Combine(d.FullName, "docs", "definition-format.md"))) return d.FullName;
+        }
+
+        throw new InvalidOperationException("docs/definition-format.md not found above the test output directory");
+    }
+
+    [Fact]
+    public void OutputPathMessage() =>
+        Assert.Equal("refusing to write outside the output directory: '../a'",
+            Assert.Throws<InvalidDataException>(() => OutputPaths.Resolve(Path.GetTempPath(), "../a")).Message);
 
     [Theory]
     [MemberData(nameof(RenderCases))]
@@ -171,6 +284,15 @@ public class DocMessagesTests
             Assert.Equal((2, "error: --out requires a directory"), Cli("render", good, "--out", "-foo"));
             Assert.Equal((2, "error: unknown command 'bogus' (see --help)"), Cli("bogus"));
             Assert.Equal((2, "error: missing command; expected 'validate' or 'render' (see --help)"), Cli());
+            Assert.Equal((2, "error: a bare '--' is not supported (see --help)"), Cli("validate", "--"));
+            Assert.Equal((2, "error: --out was given more than once"), Cli("render", good, "--out", "x", "--out", "y"));
+            Assert.Equal((2, "error: --out must not be empty"), Cli("render", good, "--out", ""));
+            Assert.Equal((2, "error: unknown option '--bogus' (see --help)"), Cli("validate", "--bogus"));
+            Assert.Equal((2, "error: unexpected extra argument 'b.md'"), Cli("validate", "a.md", "b.md"));
+            Assert.Equal((2, "error: missing <file> argument for 'validate'"), Cli("validate"));
+            var asFile = Path.Combine(dir, "afile");
+            File.WriteAllText(asFile, "x");
+            Assert.Equal((2, "error: --out is a file, not a directory: " + asFile), Cli("render", good, "--out", asFile));
             Assert.Equal(0, Cli("validate", good).Code);
         }
         finally

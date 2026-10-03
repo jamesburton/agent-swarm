@@ -3,7 +3,7 @@ created: 2026-10-02
 updated: 2026-10-02
 status: current
 ---
-# Landscape: related work in `C:\Development`
+# Landscape: related work in the parent development folder
 
 Window: last 6 months (since 2026-04-02). One-line summaries from a quick read of each project's README, **not yet reviewed in depth**. Dates are last activity.
 

@@ -16,7 +16,7 @@ Pasteable **swarm definitions** that run as wide, orchestrated fleets of Claude 
 ## Scope of the first pass
 
 - Capability matrix: what we can and can't refine about sub-agents; what we can and can't do with cross-session communication and sign-off. See [docs/capabilities.md](docs/capabilities.md).
-- Overview of recent work (last 6 months, i.e. since 2026-04) in the parent `C:\Development` folder that this builds on. See [docs/landscape.md](docs/landscape.md).
+- Overview of recent work (last 6 months, i.e. since 2026-04) in the parent development folder that this builds on. See [docs/landscape.md](docs/landscape.md).
 - A first swarm-definition format and a worked example: [docs/definition-format.md](docs/definition-format.md).
 
 ## Layout

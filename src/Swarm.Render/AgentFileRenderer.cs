@@ -59,8 +59,6 @@ public static partial class AgentFileRenderer
     // Renders a value for an error message on one line (control and line-separator characters replaced).
     static string Show(string value) => SafeStems.Show(value);
 
-    static bool IsUnsafeChar(char c) => char.IsControl(c) || c is '\u2028' or '\u2029';
-
     // Always double-quoted; backslash, quote and common whitespace controls are escaped, other controls rejected.
     static string Quote(string value, string role)
     {
@@ -75,7 +73,7 @@ public static partial class AgentFileRenderer
                 case '\r': sb.Append("\\r"); break;
                 case '\t': sb.Append("\\t"); break;
                 default:
-                    if (IsUnsafeChar(c)) throw new SwarmException($"role '{role}': description contains a control character");
+                    if (SafeStems.IsUnsafeChar(c)) throw new SwarmException($"role '{role}': description contains a control character");
                     sb.Append(c);
                     break;
             }

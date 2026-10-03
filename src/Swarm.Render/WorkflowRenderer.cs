@@ -27,7 +27,7 @@ public static partial class WorkflowRenderer
     /// <summary>Renders the workflow scripts and the tool-steps runbook.</summary>
     /// <param name="s">The swarm definition.</param>
     /// <returns>Relative path (<c>.claude/workflows/&lt;name&gt;.&lt;n&gt;.js</c> per segment, then <c>.claude/workflows/&lt;name&gt;.steps.md</c>) to file content, in that order.</returns>
-    /// <exception cref="SwarmException">Thrown when the swarm name is not a safe file stem, a flow target is missing, a role has no model, or a runbook command word is unsafe.</exception>
+    /// <exception cref="SwarmException">Thrown when the swarm name is not a safe file stem, a flow target or gate tool is missing, a role has no model, a Role stage would be first in the first segment, or a runbook command word is unsafe.</exception>
     public static IReadOnlyDictionary<string, string> Render(SwarmDefinition s)
     {
         SafeStems.Validate([s.Name], "swarm");
@@ -38,8 +38,9 @@ public static partial class WorkflowRenderer
         var steps = new List<string>();
         Segment? current = null;
         var pendingGates = new List<string>();
-        foreach (var st in s.Flow)
+        for (var i = 0; i < s.Flow.Count; i++)
         {
+            var st = s.Flow[i];
             switch (st.Type)
             {
                 case StageType.Fanout or StageType.Role:
@@ -48,68 +49,103 @@ public static partial class WorkflowRenderer
                         current = new Segment(segments.Count + 1, pendingGates.ToList(), []);
                         pendingGates.Clear();
                         segments.Add(current);
-                        steps.Add(RunStep(s.Name, current));
+                        if (current.Number == 1 && st.Type == StageType.Role)
+                            throw new SwarmException($"role '{SafeStems.Show(st.Target)}': a Role stage cannot be the first stage of the first segment (it would receive raw tasks, not completed work)");
                     }
 
                     current.Stages.Add(st);
+
+                    // The workflow step sits at the position of its segment's first stage; its text is built once the segment is complete.
+                    if (current.Stages.Count == 1) steps.Add(string.Empty);
                     break;
                 case StageType.Gate:
                     current = null;
                     pendingGates.Add(st.Target);
-                    steps.Add(GateStep(s, st.Target));
+                    steps.Add(GateStep(s, st.Target, i + 1 < s.Flow.Count && s.Flow[i + 1].Type is StageType.Fanout or StageType.Role));
                     break;
                 case StageType.Tool:
                     current = null;
-                    steps.Add(ToolStep(s, st.Target));
+                    steps.Add("Run: " + Command(FindTool(s, st.Target)));
                     break;
             }
         }
 
+        // Fill the workflow steps (placeholders) in segment order.
+        var slot = 0;
+        foreach (var seg in segments)
+        {
+            while (steps[slot].Length > 0) slot++;
+            steps[slot] = RunStep(s, seg);
+        }
+
         var files = new RenderedFiles();
         foreach (var seg in segments) files.Add($".claude/workflows/{s.Name}.{seg.Number}.js", RenderScript(s, seg));
-        files.Add($".claude/workflows/{s.Name}.steps.md", RenderRunbook(steps));
+        files.Add($".claude/workflows/{s.Name}.steps.md", RenderRunbook(s.Name, steps));
         return files;
     }
 
     // ---- runbook ----
 
-    static string RenderRunbook(List<string> steps)
+    static string RenderRunbook(string name, List<string> steps)
     {
         var sb = new StringBuilder();
         sb.Append("Run these in order. Deterministic steps run in the main session or CI; each workflow is launched with the Workflow tool and the arguments shown.\n");
-        sb.Append("In Git Bash write `dnx.cmd` instead of `dnx`.\n\n");
+        sb.Append("In Git Bash write `dnx.cmd` instead of `dnx`.\n");
+        sb.Append($"Save each workflow result to `.docs/runs/{name}.<n>.result.json`; pass the `state` field of the previous workflow's result as the next workflow's `args.state`; tool steps that need the task list read the latest such file.\n\n");
         for (var i = 0; i < steps.Count; i++) sb.Append(i + 1).Append(". ").Append(steps[i]).Append('\n');
         return sb.ToString();
     }
 
-    static string RunStep(string swarm, Segment seg)
+    static string RunStep(SwarmDefinition s, Segment seg)
     {
-        var sb = new StringBuilder($"Run workflow {swarm}.{seg.Number} with args: {{ ");
-        sb.Append(seg.Number == 1 ? "\"tasks\": [ \"<task 1>\", \"<task 2>\" ]" : "\"state\": <state from the previous workflow>");
+        var id = $"{s.Name}.{seg.Number}";
+        var sb = new StringBuilder($"Run workflow `{id}` (file `.claude/workflows/{id}.js`; pass scriptPath if lookup by name is unavailable) with args: {{ ");
+        sb.Append(seg.Number == 1 ? "\"tasks\": [ \"<task 1>\", \"<task 2>\" ]" : "\"state\": <the `state` field of the previous workflow's result>");
         if (seg.Gates.Count > 0)
             sb.Append(", \"gates\": { ").Append(string.Join(", ", seg.Gates.Distinct().Select(g => $"\"{g}\": <evidence from {GatePath(g)}>"))).Append(" }");
-        return sb.Append(" }").ToString();
+        sb.Append(" }. ");
+        sb.Append($"Save the result to `.docs/runs/{id}.result.json`. ");
+        sb.Append("If the result has halted: true, or a non-empty unresolved list: STOP and report unresolved (and pending); do not run later steps.");
+        if (seg.Stages.Any(st => st.Type == StageType.Role)) sb.Append(" A rejecting review is visible in `reviews`.");
+        return sb.ToString();
     }
 
     static string GatePath(string gate) => $".docs/runs/gates/{gate}.json";
 
-    static string GateStep(SwarmDefinition s, string name)
+    static string GateStep(SwarmDefinition s, string name, bool checkedByNextWorkflow)
     {
         var g = s.Gates.FirstOrDefault(x => x.Name == name) ?? throw new SwarmException($"flow stage '{SafeStems.Show(name)}' (Gate) does not exist");
         var kind = Word(g.Kind, $"gate '{name}'", "kind");
         var how = g.Tool is null
             ? "no tool is attached; obtain the evidence yourself"
-            : $"run tool \"{Word(g.Tool, $"gate '{name}'", "tool")}\"";
-        return $"Gate \"{name}\" (kind {kind}): {how} and write the evidence JSON {EvidenceShape} to {GatePath(name)}, then pass it as args.gates[\"{name}\"]";
+            : "run " + Command(s.Tools.FirstOrDefault(t => t.Name == g.Tool) ?? throw new SwarmException($"gate '{SafeStems.Show(name)}': tool '{SafeStems.Show(g.Tool)}' does not exist"));
+        var sb = new StringBuilder($"Gate \"{name}\" (kind {kind}): {how} and write the evidence JSON {EvidenceShape} to {GatePath(name)}, then pass it as args.gates[\"{name}\"]. If green is false: STOP and do not run later steps.");
+        if (!checkedByNextWorkflow) sb.Append(" No workflow checks this gate, so this STOP rule is the only guard for the steps that follow.");
+        return sb.ToString();
     }
 
-    static string ToolStep(SwarmDefinition s, string name)
+    static ToolDef FindTool(SwarmDefinition s, string name) =>
+        s.Tools.FirstOrDefault(x => x.Name == name) ?? throw new SwarmException($"flow stage '{SafeStems.Show(name)}' (Tool) does not exist");
+
+    // The single command builder for tool and gate steps. Arguments follow a '--' separator so flags stay away
+    // from dnx's own parser (the separator's pass-through semantics are UNVERIFIED; Task 8 verifies them).
+    static string Command(ToolDef t)
     {
-        var t = s.Tools.FirstOrDefault(x => x.Name == name) ?? throw new SwarmException($"flow stage '{SafeStems.Show(name)}' (Tool) does not exist");
-        var who = $"tool '{SafeStems.Show(name)}'";
+        var who = $"tool '{SafeStems.Show(t.Name)}'";
+        if (!Validator.IsPinnedVersion(t.Version)) throw new SwarmException($"{who}: version '{SafeStems.Show(t.Version ?? "")}' is not an exact pinned version");
         var words = new List<string> { "dnx", Arg(t.Package, who, "package") + "@" + Arg(t.Version, who, "version") };
-        words.AddRange(t.Args.Select(a => Arg(a, who, "argument")));
-        return "Run: " + string.Join(' ', words);
+        if (t.Args.Count > 0)
+        {
+            words.Add("--");
+            foreach (var a in t.Args)
+            {
+                if (a.Equals("--yes", StringComparison.OrdinalIgnoreCase) || a.Equals("-y", StringComparison.OrdinalIgnoreCase))
+                    throw new SwarmException($"{who}: argument '{a}' is not allowed (dnx must not auto-confirm)");
+                words.Add(Arg(a, who, "argument"));
+            }
+        }
+
+        return string.Join(' ', words);
     }
 
     static string Arg(string value, string who, string what) =>
@@ -120,76 +156,89 @@ public static partial class WorkflowRenderer
 
     // ---- scripts ----
 
+    // Every script is a flat body ending in a top-level return: the real Workflow tool returns that value
+    // (a main() wrapper with a trailing expression returns nothing).
     static string RenderScript(SwarmDefinition s, Segment seg)
     {
-        var phases = seg.Gates.Select(GatePhase).Concat(seg.Stages.Select(st => st.Target)).ToList();
+        var phases = new List<(string Title, string? Model)>();
+        foreach (var g in seg.Gates) phases.Add((GatePhase(g), null));
+        foreach (var st in seg.Stages)
+        {
+            phases.Add((st.Target, null));
+            if (st.Type == StageType.Fanout && FindRole(s, st.Target).EscalateTo is { } to) phases.Add((to, FindRole(s, to).Model));
+        }
+
+        var meta = phases.GroupBy(p => p.Title).Select(g => g.First())
+            .Select(p => p.Model is null ? $"{{ title: {Lit(p.Title)} }}" : $"{{ title: {Lit(p.Title)}, model: {Lit(p.Model)} }}");
         var sb = new StringBuilder();
-        sb.Append("export const meta = { name: ").Append(Lit($"{s.Name}-{seg.Number}"))
+        sb.Append("export const meta = { name: ").Append(Lit($"{s.Name}.{seg.Number}"))
           .Append(", description: ").Append(Lit(s.Description))
-          .Append(", phases: [").Append(string.Join(", ", phases.Select(p => $"{{ title: {Lit(p)} }}"))).Append("] }\n\n");
+          .Append(", phases: [").Append(string.Join(", ", meta)).Append("] };\n\n");
         sb.Append("// Generated from the swarm definition; do not edit.\n");
         sb.Append(seg.Number == 1
             ? "// Input: args.tasks, an array of task descriptions.\n"
-            : "// Input: args.state, the array of done results returned by the previous workflow.\n");
+            : "// Input: args.state, the state array of the previous workflow's result.\n");
         if (seg.Gates.Count > 0) sb.Append("// Gate evidence: args.gates[<gate>] = { green, summary }, produced by the main session.\n");
-        sb.Append("// Result: { halted, state, unresolved }; state holds only results with status 'done'.\n");
+        sb.Append("// Result: { halted, state, unresolved, pending, reviews }; state holds only results with status 'done'.\n");
         sb.Append("const RESULT = ").Append(ResultSchema).Append(";\n\n");
 
-        sb.Append("async function main() {\n");
         sb.Append(seg.Number == 1
-            ? "  let state = args && Array.isArray(args.tasks) ? args.tasks : [];\n"
-            : "  let state = args && Array.isArray(args.state) ? args.state : [];\n");
-        sb.Append("  const unresolved = [];\n");
-        sb.Append("  const halt = (reason) => {\n    log(reason);\n    return { halted: true, state: [], unresolved, reason };\n  };\n");
+            ? "let state = args && Array.isArray(args.tasks) ? args.tasks : [];\n"
+            : "let state = args && Array.isArray(args.state) ? args.state : [];\n");
+        sb.Append("const received = state;\nconst unresolved = [];\nconst reviews = [];\n");
+        sb.Append("const halt = (reason) => {\n  log(reason);\n  return { halted: true, state: [], unresolved, pending: received, reviews, reason };\n};\n");
 
         foreach (var g in seg.Gates.Distinct())
         {
-            sb.Append($"\n  phase({Lit(GatePhase(g))});\n");
-            sb.Append($"  if (!(args?.gates?.[{Lit(g)}]?.green === true)) return halt({Lit($"gate {g}: evidence is missing or not green")});\n");
+            sb.Append($"\nphase({Lit(GatePhase(g))});\n");
+            sb.Append($"if (!(args?.gates?.[{Lit(g)}]?.green === true)) return halt({Lit($"gate {g}: evidence is missing or not green")});\n");
         }
 
-        foreach (var st in seg.Stages)
+        for (var i = 0; i < seg.Stages.Count; i++)
         {
+            var st = seg.Stages[i];
             var role = FindRole(s, st.Target);
-            sb.Append("\n  {\n");
-            sb.Append($"    phase({Lit(st.Target)});\n");
-            if (st.Type == StageType.Fanout) AppendFanout(sb, s, role);
+            sb.Append("\n{\n");
+            sb.Append($"  phase({Lit(st.Target)});\n");
+            if (st.Type == StageType.Fanout) AppendFanout(sb, s, role, raw: seg.Number == 1 && i == 0);
             else AppendRole(sb, role);
-            sb.Append("  }\n");
+            sb.Append("}\n");
         }
 
-        sb.Append("\n  return { halted: false, state, unresolved };\n}\n\n");
-        sb.Append("const result = await main();\nlog(JSON.stringify(result));\nresult;\n");
+        sb.Append("\nreturn { halted: false, state, unresolved, pending: [], reviews };\n");
         return sb.ToString();
     }
 
     static string GatePhase(string gate) => $"gate {gate}";
 
-    static void AppendFanout(StringBuilder sb, SwarmDefinition s, Role role)
+    static void AppendFanout(StringBuilder sb, SwarmDefinition s, Role role, bool raw)
     {
-        sb.Append("    const results = await pipeline(\n      state,\n");
-        sb.Append($"      (t) => agent(`Task: ${{typeof t === 'string' ? t : JSON.stringify(t)}}`, {AgentOptions(role, withSchema: true)}),\n");
+        var prompt = raw
+            ? "Task: ${typeof t === 'string' ? t : JSON.stringify(t)}"
+            : "Work item from the previous stage: ${JSON.stringify(t)}. Do your role's work on it.";
+        sb.Append("  const items = state;\n  const results = await pipeline(\n    items,\n");
+        sb.Append($"    (t) => agent(`{prompt}`, {AgentOptions(role, withSchema: true)}),\n");
         if (role.EscalateTo is { } to)
         {
             var expert = FindRole(s, to);
-            sb.Append("      (res, t) => res && res.status === 'blocked'\n");
-            sb.Append("        ? agent(`Task: ${JSON.stringify(t)}. A previous agent could not finish it and returned this result: ${JSON.stringify(res)}. Continue from that hand-off; do not repeat what it already tried.`, ");
-            sb.Append(AgentOptions(expert, withSchema: true)).Append(")\n        : res,\n");
+            sb.Append("    (res, t) => res && res.status === 'blocked'\n");
+            sb.Append("      ? agent(`Task: ${JSON.stringify(t)}. A previous agent could not finish it and returned this result: ${JSON.stringify(res)}. Continue from that hand-off; do not repeat what it already tried.`, ");
+            sb.Append(AgentOptions(expert, withSchema: true)).Append(")\n      : res,\n");
         }
 
-        sb.Append("    );\n");
-        sb.Append("    const settled = results.map((r, i) => r ?? { status: 'failed', notes: 'agent returned no result', task: state[i] });\n");
-        sb.Append("    unresolved.push(...settled.filter((r) => r.status !== 'done'));\n");
-        sb.Append("    state = settled.filter((r) => r.status === 'done');\n");
-        sb.Append($"    if (state.length === 0) return halt({Lit($"{role.Name}: no task finished with status done")});\n");
+        sb.Append("  );\n");
+        sb.Append("  const settled = results.map((r, i) => ({ r, task: items[i] }));\n");
+        sb.Append("  unresolved.push(...settled.filter((x) => x.r?.status !== 'done').map((x) => ({ ...(x.r ?? { status: 'failed', notes: 'agent returned no result' }), task: x.task })));\n");
+        sb.Append("  state = settled.filter((x) => x.r?.status === 'done').map((x) => x.r);\n");
+        sb.Append($"  if (state.length === 0) return halt({Lit($"{role.Name}: no task finished with status done")});\n");
     }
 
     static void AppendRole(StringBuilder sb, Role role)
     {
-        sb.Append($"    if (state.length === 0) return halt({Lit($"{role.Name}: there are no completed tasks to work on")});\n");
-        sb.Append("    const out = await agent(`You are working on these completed tasks: ${JSON.stringify(state)}. Inspect the work on each listed branch (its diff against the base) and carry out your role on it.`, ");
+        sb.Append($"  if (state.length === 0) return halt({Lit($"{role.Name}: there are no completed tasks to work on")});\n");
+        sb.Append("  const out = await agent(`You are working on these completed tasks: ${JSON.stringify(state)}. Inspect the work on each listed branch (its diff against the base) and carry out your role on it.`, ");
         sb.Append(AgentOptions(role, withSchema: false)).Append(");\n");
-        sb.Append("    log(typeof out === 'string' ? out : JSON.stringify(out));\n");
+        sb.Append($"  reviews.push({{ role: {Lit(role.Name)}, output: out }});\n");
     }
 
     static string AgentOptions(Role role, bool withSchema)

@@ -12,6 +12,15 @@ public class ValidatorTests
         new("s", "d", (roles ?? [Code(), Llm("worker")]).ToList(), (tools ?? []).ToList(),
             (gates ?? []).ToList(), (flow ?? [new Stage(StageType.Fanout, "worker")]).ToList());
 
+    [Fact] public void GateWithUnknownTool_IsRejected() =>
+        Assert.Contains(Validator.Check(Make(gates: [new Gate("g", "test", "nope")])), e => e == "gate 'g': tool 'nope' does not exist");
+
+    [Fact] public void GateWithExistingToolOrNoTool_IsAccepted() =>
+        Assert.Empty(Validator.Check(Make(tools: [new ToolDef("squash", "Pkg.Id", "1.0.0", [])], gates: [new Gate("g", "test", "squash"), new Gate("h", "test", null)])));
+
+    [Theory] [InlineData("1.2.3", true)] [InlineData("1.2.3-rc.1", true)] [InlineData("1.2", false)] [InlineData("*", false)] [InlineData("", false)] [InlineData(null, false)]
+    public void IsPinnedVersion_MatchesExactVersionsOnly(string? v, bool expected) => Assert.Equal(expected, Validator.IsPinnedVersion(v));
+
     [Fact] public void ValidSwarm_HasNoErrors() => Assert.Empty(Validator.Check(Make()));
 
     [Fact] public void UnknownModel_IsRejected() =>

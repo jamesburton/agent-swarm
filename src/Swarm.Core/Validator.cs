@@ -11,6 +11,11 @@ public static class Validator
     static readonly HashSet<string> Aliases = ["haiku", "sonnet", "opus", "fable", "inherit"];
     static readonly Regex Pinned = new(@"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$");
 
+    /// <summary>True when the version is an exact pinned version such as <c>1.2.3</c> or <c>1.2.3-rc.1</c>.</summary>
+    /// <param name="version">The version text.</param>
+    /// <returns>Whether it is pinned.</returns>
+    public static bool IsPinnedVersion(string? version) => Pinned.IsMatch(version ?? "");
+
     /// <summary>Returns all validation errors (empty when valid).</summary>
     /// <param name="s">The definition to check.</param>
     /// <returns>The error messages.</returns>
@@ -36,7 +41,13 @@ public static class Validator
         foreach (var t in s.Tools)
         {
             if (string.IsNullOrWhiteSpace(t.Package)) errors.Add($"tool '{t.Name}': explicit package id required");
-            if (!Pinned.IsMatch(t.Version ?? "")) errors.Add($"tool '{t.Name}': exact pinned version required (got '{t.Version}')");
+            if (!IsPinnedVersion(t.Version)) errors.Add($"tool '{t.Name}': exact pinned version required (got '{t.Version}')");
+        }
+
+        foreach (var g in s.Gates)
+        {
+            if (g.Tool is { } gt && !s.Tools.Any(t => t.Name == gt))
+                errors.Add($"gate '{g.Name}': tool '{gt}' does not exist");
         }
 
         foreach (var st in s.Flow)

@@ -9,8 +9,6 @@ namespace Swarm.Formats;
 /// <summary>Parses the YAML swarm definition format into a validated <see cref="SwarmDefinition"/>.</summary>
 public static class YamlFrontEnd
 {
-    static readonly HashSet<string> Efforts = ["low", "medium", "high", "xhigh", "max"];
-
     /// <summary>Hyphenated keys (<c>escalate-to</c>) except the camel-case <c>maxTurns</c> shared with the Markdown format.</summary>
     sealed class Naming : INamingConvention
     {
@@ -64,7 +62,7 @@ public static class YamlFrontEnd
     /// <exception cref="SwarmException">Thrown when the text is malformed or invalid; the message is always a single line.</exception>
     public static SwarmDefinition Parse(string yaml)
     {
-        var text = yaml.TrimStart('﻿').ReplaceLineEndings("\n");
+        var text = yaml.TrimStart('\uFEFF').ReplaceLineEndings("\n");
         SwarmDto? dto;
         try
         {
@@ -88,20 +86,35 @@ public static class YamlFrontEnd
             switch (node)
             {
                 case YamlMappingNode map:
+                    RejectAnchor(map);
                     var seen = new HashSet<string>(StringComparer.Ordinal);
                     foreach (var (k, v) in map.Children)
                     {
+                        if (k is YamlScalarNode { Value: "<<" }) throw Unsupported(k);
+                        RejectAnchor(k);
+                        RejectAnchor(v);
+                        if (k is YamlScalarNode key && v is YamlScalarNode { Style: ScalarStyle.Plain, Value: null or "" or "~" or "null" or "Null" or "NULL" })
+                            throw new YamlException(k.Start, k.End, $"key '{key.Value}' has no value");
                         if (k is YamlScalarNode s && !seen.Add(s.Value ?? ""))
                             throw new YamlException(k.Start, k.End, $"duplicate key '{s.Value}'");
                         Walk(v);
                     }
                     break;
                 case YamlSequenceNode seq:
+                    RejectAnchor(seq);
                     foreach (var c in seq.Children) Walk(c);
                     break;
             }
         }
     }
+
+    static void RejectAnchor(YamlNode n)
+    {
+        if (!n.Anchor.IsEmpty) throw Unsupported(n);
+    }
+
+    static YamlException Unsupported(YamlNode n) =>
+        new(n.Start, n.End, "YAML anchors/aliases/merge keys are not supported; write the content explicitly");
 
     static SwarmException OneLine(YamlException ex)
     {
@@ -151,11 +164,7 @@ public static class YamlFrontEnd
     static Role MakeLlmRole(string name, RoleDto r, string swarm)
     {
         if (r.Flow != null) throw new SwarmException($"unknown key 'flow' in llm role '{name}'");
-        if (r.Effort != null && !Efforts.Contains(r.Effort)) throw new SwarmException($"unknown effort '{r.Effort}' in role '{name}'");
-        if (r.Isolation != null && r.Isolation != "worktree") throw new SwarmException($"unsupported isolation '{r.Isolation}' in role '{name}'");
-        int? turns = null;
-        if (r.MaxTurns is { } mt)
-            turns = int.TryParse(mt, out var n) && n > 0 ? n : throw new SwarmException($"bad maxTurns '{mt}' in role '{name}'");
+        var turns = RoleFields.Check(name, r.Effort, r.Isolation, r.MaxTurns);
         return new Role(name, RoleKind.Llm, r.Model, r.Description ?? $"{name} role of {swarm}", Items(r.Tools, $"role '{name}' tools"),
             turns, r.Effort, r.Isolation, r.EscalateTo, r.Context, (r.Prompt ?? "").Trim());
     }

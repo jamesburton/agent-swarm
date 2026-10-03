@@ -59,7 +59,7 @@ public class YamlFrontEndTests
 
     [Fact] public void MalformedYaml_IsOneLineSwarmException() => Fails("name: [unclosed\nroles: {");
 
-    [Fact] public void WrongShape_IsOneLineSwarmException() => Fails(Sample.Replace("tools: [Read, Grep, Glob]", "tools: nope"));
+    [Fact] public void WrongShape_IsOneLineSwarmException() => Assert.Contains("invalid YAML", Fails(Sample.Replace("tools: [Read, Grep, Glob]", "tools: nope")).Message);
 
     [Fact] public void NonMappingDocument_Throws() => Fails("- a\n- b\n");
 
@@ -78,14 +78,45 @@ public class YamlFrontEndTests
     [Fact] public void EmptyFlowEntry_Throws() => Fails(Sample.Replace("\"reviewer\", ", "\"reviewer\", \" \", "));
 
     [Theory]
-    [InlineData("effort: low", "effort: turbo")]
-    [InlineData("isolation: worktree", "isolation: docker")]
-    [InlineData("maxTurns: 30", "maxTurns: 0")]
-    [InlineData("maxTurns: 30", "maxTurns: many")]
-    [InlineData("    kind: code", "    kind: robot")]
-    public void BadValues_Throw(string from, string to) => Fails(Sample.Replace(from, to));
+    [InlineData("effort: low", "effort: turbo", "unknown effort 'turbo'")]
+    [InlineData("isolation: worktree", "isolation: docker", "unsupported isolation 'docker'")]
+    [InlineData("maxTurns: 30", "maxTurns: 0", "bad maxTurns '0'")]
+    [InlineData("maxTurns: 30", "maxTurns: many", "bad maxTurns 'many'")]
+    [InlineData("    kind: llm\n    model: haiku", "    kind: robot\n    model: haiku", "unknown kind 'robot'")]
+    public void BadValues_Throw(string from, string to, string expected) => Assert.Contains(expected, Fails(Sample.Replace(from, to)).Message);
 
-    [Fact] public void MissingKind_Throws() => Fails(Sample.Replace("    kind: test\n", ""));
+    [Fact] public void MissingKind_Throws() =>
+        Assert.Contains("missing required key 'kind' in role 'worker'", Fails(Sample.Replace("    kind: llm\n    model: haiku", "    model: haiku")).Message);
+
+    [Fact] public void MissingGateKind_Throws() =>
+        Assert.Contains("missing required key 'kind' in gate 'batch-green'", Fails(Sample.Replace("    kind: test\n", "")).Message);
+
+    [Fact] public void ScalarTyping_IsPinned()
+    {
+        Assert.Contains("pinned version", Fails(Sample.Replace("version: 0.1.0", "version: 1.0")).Message);
+        Assert.Equal("1.2.3", YamlFrontEnd.Parse(Sample.Replace("version: 0.1.0", "version: 1.2.3")).Tools.Single().Version);
+        Assert.Equal(30, YamlFrontEnd.Parse(Sample).Roles.Single(r => r.Name == "worker").MaxTurns);
+        Assert.Equal(30, YamlFrontEnd.Parse(Sample.Replace("maxTurns: 30", "maxTurns: \"30\"")).Roles.Single(r => r.Name == "worker").MaxTurns);
+        Assert.Contains("bad maxTurns 'abc'", Fails(Sample.Replace("maxTurns: 30", "maxTurns: abc")).Message);
+        Assert.Contains("unknown model alias '5'", Fails(Sample.Replace("model: haiku", "model: 5")).Message);
+        Assert.Equal("true", YamlFrontEnd.Parse(Sample.Replace("name: epic-delivery", "name: true")).Name);
+    }
+
+    [Theory]
+    [InlineData("name: epic-delivery", "name: &x epic-delivery")]
+    [InlineData("name: epic-delivery", "name: &x epic-delivery\nx: *x")]
+    [InlineData("  worker:\n", "  <<: {kind: llm}\n  worker:\n")]
+    public void AnchorsAliasesAndMergeKeys_AreRejected(string from, string to) =>
+        Assert.Contains("anchors/aliases/merge keys are not supported", Fails(Sample.Replace(from, to)).Message);
+
+    [Fact] public void NullToolBody_Throws() => Assert.Contains("key 'squash' has no value", Fails(Sample.Replace("  squash:\n    package: Swarm.Squash\n    version: 0.1.0\n", "  squash:\n")).Message);
+
+    [Fact] public void NullGateBody_Throws() => Assert.Contains("key 'batch-green' has no value", Fails(Sample.Replace("  batch-green:\n    kind: test\n    tool: squash\n", "  batch-green:\n")).Message);
+
+    [Fact] public void ScalarWhereMappingExpected_Throws() => Assert.Contains("invalid YAML", Fails(Sample.Replace("roles:\n", "roles: nope\nx:\n")).Message);
+
+    [Fact] public void EmptyEscalateTo_Throws() =>
+        Assert.Contains("key 'escalate-to' has no value", Fails(Sample.Replace("escalate-to: expert", "escalate-to:")).Message);
 
     [Fact] public void FlowOnLlmRole_Throws() => Fails(Sample.Replace("    effort: low", "    effort: low\n    flow: [reviewer]"));
 

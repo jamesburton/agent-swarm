@@ -17,7 +17,6 @@ public static class MarkdownFrontEnd
     static readonly HashSet<string> ToolKeys = ["package", "version", "args"];
     static readonly HashSet<string> GateKeys = ["kind", "tool"];
     static readonly HashSet<string> CodeKeys = ["flow"];
-    static readonly HashSet<string> Efforts = ["low", "medium", "high", "xhigh", "max"];
 
     enum SectionKind { Code, Llm, Tool, Gate }
 
@@ -112,12 +111,8 @@ public static class MarkdownFrontEnd
         foreach (var k in kv.Keys.Where(k => !RoleKeys.Contains(k))) throw new SwarmException($"unknown key '{k}' in role '{name}'");
         string? Get(string k) => kv.GetValueOrDefault(k);
         var effort = Get("effort");
-        if (effort != null && !Efforts.Contains(effort)) throw new SwarmException($"unknown effort '{effort}' in role '{name}'");
         var isolation = Get("isolation");
-        if (isolation != null && isolation != "worktree") throw new SwarmException($"unsupported isolation '{isolation}' in role '{name}'");
-        int? turns = null;
-        if (Get("maxTurns") is { } mt)
-            turns = int.TryParse(mt, out var n) && n > 0 ? n : throw new SwarmException($"bad maxTurns '{mt}' in role '{name}'");
+        var turns = RoleFields.Check(name, effort, isolation, Get("maxTurns"));
         return new Role(name, RoleKind.Llm, Get("model"), Get("description") ?? $"{name} role of {swarm}", List(Get("tools")),
             turns, effort, isolation, Get("escalate-to"), Get("context"), body.Trim());
     }

@@ -16,8 +16,8 @@ public class MarkdownFrontEndTests
         Assert.Equal("opus", s.Roles.Single(r => r.Name == "expert").Model);
         Assert.Equal("expert", s.Roles.Single(r => r.Name == "worker").EscalateTo);
         Assert.Equal(new[] { StageType.Fanout, StageType.Gate, StageType.Role, StageType.Tool }, s.Flow.Select(f => f.Type));
-        Assert.Equal("0.1.0", s.Tools.Single().Version);
-        Assert.Equal("squash", s.Gates.Single().Tool);
+        Assert.All(s.Tools, t => Assert.Equal("0.1.0", t.Version));
+        Assert.Equal("testgate", s.Gates.Single().Tool);
     }
 
     [Fact] public void CrlfInput_ParsesIdentically() =>
@@ -61,7 +61,7 @@ public class MarkdownFrontEndTests
     [InlineData("escalate-to: expert", "escalate_to: expert")]
     [InlineData("model: haiku", "Model: haiku")]
     [InlineData("package: Swarm.Squash", "package: Swarm.Squash\nagrs: x")]
-    [InlineData("kind: test\ntool: squash", "kind: test\ntol: squash")]
+    [InlineData("kind: test\ntool: testgate", "kind: test\ntol: testgate")]
     [InlineData(Flow, "flows: worker*")]
     [InlineData("version: 0.1.0", "version: 0.1.0\nstray prose")]
     [InlineData("kind: test", "kind: test\nstray prose")]
@@ -74,6 +74,32 @@ public class MarkdownFrontEndTests
         Assert.Contains(from, Sample);
         var ex = Assert.Throws<SwarmException>(() => MarkdownFrontEnd.Parse(Sample.Replace(from, to)));
         Assert.DoesNotContain('\n', ex.Message);
+    }
+
+    [Fact] public void FrontMatter_DescriptionIsOptional_AndBlankLinesAreAllowed()
+    {
+        var s = MarkdownFrontEnd.Parse(Sample.Replace("description: Deliver an epic with cheap workers, on-demand experts and a batched test gate.\n", "\n"));
+        Assert.Equal("", s.Description);
+        Assert.Equal("epic-delivery", s.Name);
+    }
+
+    [Theory]
+    [InlineData("name: epic-delivery\n", "name: epic-delivery\nowner: me\n", "unknown front-matter key 'owner'")]
+    [InlineData("name: epic-delivery\n", "name: epic-delivery\nName: x\n", "unknown front-matter key 'Name'")]
+    [InlineData("name: epic-delivery\n", "name: epic-delivery\nname: again\n", "duplicate front-matter key 'name'")]
+    [InlineData("name: epic-delivery\n", "name: epic-delivery\n- a list item\n", "unexpected text in front-matter: '- a list item'")]
+    public void FrontMatter_IsStrict(string from, string to, string message)
+    {
+        Assert.Contains(from, Sample);
+        Assert.Equal(message, Assert.Throws<SwarmException>(() => MarkdownFrontEnd.Parse(Sample.Replace(from, to))).Message);
+    }
+
+    [Fact] public void ExpertIsolationAndTestgateGateAreParsed()
+    {
+        var s = TestSamples.Parsed();
+        Assert.Equal("worktree", s.Roles.Single(r => r.Name == "expert").Isolation);
+        Assert.Equal("testgate", s.Gates.Single().Tool);
+        Assert.Equal(new[] { "squash", "testgate" }, s.Tools.Select(t => t.Name));
     }
 
     [Fact] public void StrayWhitespaceInLists_IsTrimmed()

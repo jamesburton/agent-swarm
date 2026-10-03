@@ -55,6 +55,20 @@ public class YamlFrontEndTests
 
     [Fact] public void UnknownKey_NamesTheKey() => Assert.Contains("modle", Fails(Sample.Replace("    model: haiku", "    modle: haiku")).Message);
 
+    [Theory]
+    [InlineData("    model: haiku", "    modle: haiku", "unknown key 'modle' in role 'worker'")]
+    [InlineData("    kind: code\n", "    kind: code\n    colour: red\n", "unknown key 'colour' in role 'orchestrator'")]
+    [InlineData("    package: Swarm.TestGate", "    package: Swarm.TestGate\n    owner: me", "unknown key 'owner' in tool 'testgate'")]
+    [InlineData("    tool: testgate", "    tool: testgate\n    when: always", "unknown key 'when' in gate 'batch-green'")]
+    [InlineData("roles:\n", "colour: red\nroles:\n", "unknown top-level key 'colour'")]
+    public void UnknownKeys_NameKeyAndOwner_NotInternalTypes(string from, string to, string message)
+    {
+        Assert.Contains(from, Sample);
+        var m = Fails(Sample.Replace(from, to)).Message;
+        Assert.Equal(message, m);
+        Assert.DoesNotContain("Dto", m);
+    }
+
     [Fact] public void DuplicateKeys_Throw() => Fails(Sample.Replace("    effort: low", "    effort: low\n    effort: high"));
 
     [Fact] public void MalformedYaml_IsOneLineSwarmException() => Fails("name: [unclosed\nroles: {");
@@ -94,7 +108,7 @@ public class YamlFrontEndTests
     [Fact] public void ScalarTyping_IsPinned()
     {
         Assert.Contains("pinned version", Fails(Sample.Replace("version: 0.1.0", "version: 1.0")).Message);
-        Assert.Equal("1.2.3", YamlFrontEnd.Parse(Sample.Replace("version: 0.1.0", "version: 1.2.3")).Tools.Single().Version);
+        Assert.Equal("1.2.3", YamlFrontEnd.Parse(Sample.Replace("version: 0.1.0", "version: 1.2.3")).Tools.First().Version);
         Assert.Equal(30, YamlFrontEnd.Parse(Sample).Roles.Single(r => r.Name == "worker").MaxTurns);
         Assert.Equal(30, YamlFrontEnd.Parse(Sample.Replace("maxTurns: 30", "maxTurns: \"30\"")).Roles.Single(r => r.Name == "worker").MaxTurns);
         Assert.Contains("bad maxTurns 'abc'", Fails(Sample.Replace("maxTurns: 30", "maxTurns: abc")).Message);
@@ -121,9 +135,9 @@ public class YamlFrontEndTests
 
     [Fact] public void NullToolBody_Throws() => Assert.Contains("key 'squash' has no value", Fails(Sample.Replace("  squash:\n    package: Swarm.Squash\n    version: 0.1.0\n", "  squash:\n")).Message);
 
-    [Fact] public void NullGateBody_Throws() => Assert.Contains("key 'batch-green' has no value", Fails(Sample.Replace("  batch-green:\n    kind: test\n    tool: squash\n", "  batch-green:\n")).Message);
+    [Fact] public void NullGateBody_Throws() => Assert.Contains("key 'batch-green' has no value", Fails(Sample.Replace("  batch-green:\n    kind: test\n    tool: testgate\n", "  batch-green:\n")).Message);
 
-    [Fact] public void ScalarWhereMappingExpected_Throws() => Assert.Contains("invalid YAML", Fails(Sample.Replace("roles:\n", "roles: nope\nx:\n")).Message);
+    [Fact] public void ScalarWhereMappingExpected_Throws() => Assert.Contains("invalid YAML", Fails(Sample.Replace("gates:\n  batch-green:\n    kind: test\n    tool: testgate\n", "gates: nope\n")).Message);
 
     [Fact] public void EmptyEscalateTo_Throws() =>
         Assert.Contains("key 'escalate-to' has no value", Fails(Sample.Replace("escalate-to: expert", "escalate-to:")).Message);

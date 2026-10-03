@@ -12,6 +12,7 @@ public static class MarkdownFrontEnd
     static readonly Regex GateHeading = new(@"^##\s+gate:\s*([A-Za-z][\w-]*)\s*$");
     static readonly Regex KeyValue = new(@"^([A-Za-z][\w-]*):\s*(.*)$");
 
+    static readonly HashSet<string> FrontMatterKeys = ["name", "description"];
     static readonly HashSet<string> RoleKeys = ["model", "description", "tools", "maxTurns", "effort", "isolation", "escalate-to", "context"];
     static readonly Regex AnyHeading = new(@"^##(\s|$)");
     static readonly HashSet<string> ToolKeys = ["package", "version", "args"];
@@ -33,7 +34,13 @@ public static class MarkdownFrontEnd
             var end = lines.FindIndex(1, l => l.Trim() == "---");
             if (end < 0) throw new SwarmException("unterminated front-matter");
             foreach (var l in lines[1..end])
-                if (KeyValue.Match(l) is { Success: true } m) meta[m.Groups[1].Value] = m.Groups[2].Value.Trim();
+            {
+                if (string.IsNullOrWhiteSpace(l)) continue;
+                if (KeyValue.Match(l) is not { Success: true } m) throw new SwarmException($"unexpected text in front-matter: '{SafeText.Show(l.Trim())}'");
+                var key = m.Groups[1].Value;
+                if (!FrontMatterKeys.Contains(key)) throw new SwarmException($"unknown front-matter key '{key}'");
+                if (!meta.TryAdd(key, m.Groups[2].Value.Trim())) throw new SwarmException($"duplicate front-matter key '{key}'");
+            }
             lines = lines[(end + 1)..];
         }
 
@@ -112,7 +119,7 @@ public static class MarkdownFrontEnd
         string? Get(string k) => kv.GetValueOrDefault(k);
         var effort = Get("effort");
         var isolation = Get("isolation");
-        var turns = RoleFields.Check(name, effort, isolation, Get("maxTurns"));
+        var turns = RoleFields.Check(name, effort, isolation, Get("maxTurns"), Get("context"));
         return new Role(name, RoleKind.Llm, Get("model"), Get("description") ?? $"{name} role of {swarm}", List(Get("tools")),
             turns, effort, isolation, Get("escalate-to"), Get("context"), body.Trim());
     }

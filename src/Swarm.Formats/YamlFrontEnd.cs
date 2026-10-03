@@ -66,7 +66,7 @@ public static class YamlFrontEnd
         SwarmDto? dto;
         try
         {
-            RejectDuplicateKeys(text);
+            CheckStructure(text);
             dto = new DeserializerBuilder().WithNamingConvention(Naming.Instance).Build().Deserialize<SwarmDto?>(text);
         }
         catch (YamlException ex) { throw OneLine(ex); }
@@ -75,11 +75,18 @@ public static class YamlFrontEnd
         return Map(dto);
     }
 
-    static void RejectDuplicateKeys(string text)
+    // Keys each mapping accepts, derived from the DTOs so the lists cannot drift from what the deserializer binds.
+    static readonly HashSet<string> TopKeys = Keys<SwarmDto>(), RoleKeys = Keys<RoleDto>(), ToolKeys = Keys<ToolDto>(), GateKeys = Keys<GateDto>();
+
+    static HashSet<string> Keys<T>() => typeof(T).GetProperties().Select(p => Naming.Instance.Apply(p.Name)).ToHashSet(StringComparer.Ordinal);
+
+    // Rejects anchors, aliases, merge keys, duplicate keys and empty values, then unknown keys (named with their role, tool or gate).
+    static void CheckStructure(string text)
     {
         var stream = new YamlStream();
         stream.Load(new StringReader(text));
         foreach (var doc in stream.Documents) Walk(doc.RootNode);
+        if (stream.Documents.FirstOrDefault()?.RootNode is YamlMappingNode root) RejectUnknownKeys(root);
 
         static void Walk(YamlNode node)
         {
@@ -109,6 +116,26 @@ public static class YamlFrontEnd
                         Walk(c);
                     }
                     break;
+            }
+        }
+    }
+
+    static void RejectUnknownKeys(YamlMappingNode root)
+    {
+        foreach (var key in root.Children.Keys.OfType<YamlScalarNode>().Select(k => k.Value ?? "").Where(k => !TopKeys.Contains(k)))
+            throw new SwarmException($"unknown top-level key '{SafeText.Show(key)}'");
+        Section("roles", "role", RoleKeys);
+        Section("tools", "tool", ToolKeys);
+        Section("gates", "gate", GateKeys);
+
+        void Section(string key, string noun, HashSet<string> allowed)
+        {
+            if (!root.Children.TryGetValue(new YamlScalarNode(key), out var node) || node is not YamlMappingNode entries) return;
+            foreach (var (name, body) in entries.Children)
+            {
+                if (name is not YamlScalarNode { Value: var owner } || body is not YamlMappingNode fields) continue;
+                foreach (var k in fields.Children.Keys.OfType<YamlScalarNode>().Select(k => k.Value ?? "").Where(k => !allowed.Contains(k)))
+                    throw new SwarmException($"unknown key '{SafeText.Show(k)}' in {noun} '{SafeText.Show(owner ?? "")}'");
             }
         }
     }
@@ -169,7 +196,7 @@ public static class YamlFrontEnd
     static Role MakeLlmRole(string name, RoleDto r, string swarm)
     {
         if (r.Flow != null) throw new SwarmException($"unknown key 'flow' in llm role '{name}'");
-        var turns = RoleFields.Check(name, r.Effort, r.Isolation, r.MaxTurns);
+        var turns = RoleFields.Check(name, r.Effort, r.Isolation, r.MaxTurns, r.Context);
         return new Role(name, RoleKind.Llm, r.Model, r.Description ?? $"{name} role of {swarm}", Items(r.Tools, $"role '{name}' tools"),
             turns, r.Effort, r.Isolation, r.EscalateTo, r.Context, (r.Prompt ?? "").Trim());
     }

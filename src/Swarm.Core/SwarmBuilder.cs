@@ -54,14 +54,16 @@ public sealed class SwarmBuilder
     /// <param name="version">Exact pinned version.</param>
     /// <param name="args">Default arguments.</param>
     /// <returns>The builder.</returns>
-    /// <exception cref="SwarmException">Thrown when the name is blank or an argument is null.</exception>
+    /// <exception cref="SwarmException">Thrown when the name is blank, an argument is null or <paramref name="args"/> contains null.</exception>
     public SwarmBuilder Tool(string name, string package, string version, params string[] args)
     {
         name = Name(name);
+        if (args is null) throw new SwarmException($"args of tool '{name}' must not be null");
+        if (args.Any(a => a is null)) throw new SwarmException($"args of tool '{name}' must not contain null");
         tools.Add(new ToolDef(name,
             package ?? throw new SwarmException($"package of tool '{name}' must not be null"),
             version ?? throw new SwarmException($"version of tool '{name}' must not be null"),
-            [.. args ?? throw new SwarmException($"args of tool '{name}' must not be null")]));
+            [.. args]));
         return this;
     }
 
@@ -143,7 +145,7 @@ public sealed class RoleBuilder
     /// <returns>This builder.</returns>
     public RoleBuilder EscalateTo(string value) { escalateTo = NotNull(value, "escalate-to"); return this; }
 
-    /// <summary>Sets the context mode.</summary>
+    /// <summary>Sets the context mode; <c>distilled</c> is the only supported value (checked when the role is added).</summary>
     /// <param name="value">The context mode.</param>
     /// <returns>This builder.</returns>
     public RoleBuilder Context(string value) { context = NotNull(value, "context"); return this; }
@@ -155,7 +157,7 @@ public sealed class RoleBuilder
 
     internal Role ToRole(string swarm)
     {
-        var turns = RoleFields.Check(role, effort, isolation, maxTurns?.ToString());
+        var turns = RoleFields.Check(role, effort, isolation, maxTurns?.ToString(), context);
         return new Role(role, RoleKind.Llm, model, description ?? $"{role} role of {swarm}", tools, turns, effort, isolation, escalateTo, context, prompt.Trim());
     }
 }

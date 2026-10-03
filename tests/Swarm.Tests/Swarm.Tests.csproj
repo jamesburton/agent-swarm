@@ -19,6 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="Samples\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Swarm.Core\Swarm.Core.csproj" />
     <ProjectReference Include="..\..\src\Swarm.Formats\Swarm.Formats.csproj" />
     <ProjectReference Include="..\..\src\Swarm.Render\Swarm.Render.csproj" />

@@ -74,3 +74,7 @@ Closed with evidence in `spikes/01-batched-tests/b/RESULTS.md`: measured serial 
 | Stacked tasks | Land a stack as one unit: tasks declare `dependsOn`; batched together and squashed per ticket in order. |
 | Blame and pre-batching | Later task in queue order goes back (convention, not true attribution); keep file-name pre-batching as a cheap hint. |
 | Other PROMOTION.md items (exit codes, config file, JSON schema, logging, gate scope, wait policy, exit 0 after rebase) | Spike defaults, to be confirmed in the production plan. |
+
+## Spike 2 completion (2026-10-03)
+
+Real Workflow dry runs (2 runs, 10 agents total) proved the control flow, including escalation to an expert. Eight renderer/design findings are recorded in `spikes/02-definition-renderer/README.md`; the production plan must address them. Key design consequences: (1) deterministic tool steps (testgate, batch, squash) run outside the Workflow script (it cannot exec; an LLM gate costs ~31k tokens), the workflow only fans out LLM work and reads gate evidence; (2) tool references must be explicit pinned package ids, never bare names; (3) no `--yes` on `dnx`; (4) generated agent files must exist at session start.

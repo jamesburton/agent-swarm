@@ -1,0 +1,49 @@
+# NOT REAL: the package ids Swarm.Squash and Swarm.TestGate below are examples; they are not published and nobody owns them on nuget.org. Review every tool package id before running the runbook.
+name: epic-delivery
+description: Deliver an epic with cheap workers, on-demand experts and a batched test gate.
+roles:
+  orchestrator:
+    kind: code
+    flow: ["worker*", "gate:batch-green", "reviewer", "tool:squash"]
+  worker:
+    kind: llm
+    model: haiku
+    description: Implements exactly one task in its own worktree and returns a fixed-shape result.
+    tools: [Read, Edit, Write, Grep, Glob, Bash]
+    maxTurns: 30
+    effort: low
+    isolation: worktree
+    escalate-to: expert
+    prompt: |
+      You implement one task. Run only the targeted tests. Return status, branch, commit, test summary and at most 10 lines of notes.
+  expert:
+    kind: llm
+    model: opus
+    description: Solves what a worker could not, from a distilled hand-off.
+    tools: [Read, Edit, Grep, Glob, Bash]
+    maxTurns: 40
+    effort: high
+    isolation: worktree
+    context: distilled
+    prompt: |
+      You are given a distilled summary: goal, state, files, failed attempts with reasons, open question. Do not repeat the listed failed attempts.
+  reviewer:
+    kind: llm
+    model: sonnet
+    description: Reviews a green batch diff for correctness and style.
+    tools: [Read, Grep, Glob, Bash]
+    maxTurns: 15
+    effort: medium
+    prompt: |
+      Review the diff. Report blocking issues first.
+tools:
+  squash:
+    package: Swarm.Squash
+    version: 0.1.0
+  testgate:
+    package: Swarm.TestGate
+    version: 0.1.0
+gates:
+  batch-green:
+    kind: test
+    tool: testgate

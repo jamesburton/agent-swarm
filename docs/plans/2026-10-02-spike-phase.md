@@ -22,7 +22,7 @@ status: current
 - `.docs/` is git-ignored; run state defaults to `<main-worktree>/.docs/runs/`.
 - Docs in `docs/` use relative links, GitHub/ADO-wiki-compatible markdown, no private details, light front-matter (`created`, `updated`).
 - Claims are labelled **verified** / **documented** / **unverified** with a source.
-- Windows host: PowerShell-native commands; paths short (worktrees under `C:\Development\agent-swarm-wt\`).
+- Windows host: PowerShell-native commands; paths short (worktrees under `<worktree-root>\`).
 - Branches for spike work: `spike/NN<variant>-slug` (this repo has no Azure DevOps prefix rule).
 - Commit trailers on every commit: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and the session line.
 
@@ -95,7 +95,7 @@ Run: `dotnet --version` from the repo root. Expected: `10.0.401`.
 **Interfaces:** Produces CLI `dotnet run sandbox-gen.cs -- <outDir> --projects 12 --tests-per 20 --delay-ms 150 --seed 1 --failing 0` which writes a git-initialised solution `<outDir>` with N library projects (`Lib01..`), N test projects (`Lib01.Tests..`, xUnit, each test sleeping `delay-ms`), project references forming a layered graph (`LibK` depends on `Lib(K-1)`), and, when `--failing > 0`, that many seeded tests which fail only when two specific task branches are combined (a cross-task interaction). Also writes `<outDir>/tasks.json`: an array of task descriptors `{ "id": "T001", "touches": ["Lib03/Foo.cs"], "branch": "task/T001" }` and creates those branches each with a trivial, valid edit.
 
 - [ ] **Step 1: Write generator**, with the CLI above.
-- [ ] **Step 2: Generate** `dotnet run sandbox-gen.cs -- C:\Development\agent-swarm-wt\sandbox --projects 12 --tests-per 20 --delay-ms 150 --seed 1`.
+- [ ] **Step 2: Generate** `dotnet run sandbox-gen.cs -- <worktree-root>\sandbox --projects 12 --tests-per 20 --delay-ms 150 --seed 1`.
 - [ ] **Step 3: Verify**: `dotnet test` in the sandbox completes; wall time ≈ `projects*tests*delay` ± parallelism; `git branch` lists the task branches.
 - [ ] **Step 4: Commit** `git add spikes/shared && git commit -m "Add sandbox generator spike"`
 

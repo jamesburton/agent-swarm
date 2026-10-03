@@ -62,3 +62,15 @@ Newest last. Each entry: decision, rationale, date. Revisit by adding a new entr
 | 2 definition renderer | **Adopt A** (typed canonical model + front-ends) | Generated Workflow scripts still only syntax-checked; run one in the real Workflow tool before relying on it. |
 | 3 expert hand-off | **Keep both A (structured) and B (pointer-based)** as swappable options chosen per swarm definition | Rerun on harder scenario, 12 graded runs: all correct (35/35), cost within ~10%; A cut Opus tool calls 12.5 → 7, B cost most, cold Sonnet cheapest. Evidence does not favour a winner; cold escalation remains a valid option. Next evidence needed: a real weak-worker transcript on a larger repo. |
 | 4 doc sweeper | **Adopt A** (deterministic); fix this repo's docs now | Done: front-matter added to 5 docs, orphans linked from AGENTS.md, statuses normalised; sweep now 0 errors. B's `--llm` check stays an optional follow-up. |
+
+## Spike 1 completion (2026-10-03)
+
+Closed with evidence in `spikes/01-batched-tests/b/RESULTS.md`: measured serial 12 suites / 889 s vs batched 2 suites / 155 s (load caveat); real conflict path (10 landed, 3 returned, 1 rebased, 2 needs-worker); touches derived from git; concurrent batches serialised with no deadlock; 6/6 edge cases. Still unverified: real repo, two simultaneous reclaimers, more than two gates.
+
+| Decision (promotion of testgate/batch) | Choice |
+|---|---|
+| Missing task branch | Return that task (bad input) in `returned.json`, run the rest; exit 1 at the end. |
+| Rebase policy | Auto-requeue a rebased copy ref (`rebased/E1/Txxx`), max 1 attempt; second conflict goes to needs-worker; worker branch left intact. |
+| Stacked tasks | Land a stack as one unit: tasks declare `dependsOn`; batched together and squashed per ticket in order. |
+| Blame and pre-batching | Later task in queue order goes back (convention, not true attribution); keep file-name pre-batching as a cheap hint. |
+| Other PROMOTION.md items (exit codes, config file, JSON schema, logging, gate scope, wait policy, exit 0 after rebase) | Spike defaults, to be confirmed in the production plan. |

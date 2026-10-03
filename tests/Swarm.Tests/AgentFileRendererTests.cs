@@ -101,7 +101,7 @@ public class AgentFileRendererTests
     [Theory]
     [InlineData("../x")]
     [InlineData("a/b")]
-    [InlineData("a\b")]
+    [InlineData("a\\b")]
     [InlineData("a.b")]
     [InlineData("con")]
     [InlineData("NUL")]

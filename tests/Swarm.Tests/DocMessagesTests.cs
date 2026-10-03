@@ -7,7 +7,7 @@ using Swarm.Render;
 public class DocMessagesTests
 {
     const string UnsafeName = "name is not a safe file name (1-64 letters, digits, '_' or '-'; not a reserved device name)";
-    const string YamlValueName = "name reads as a YAML value (null, true, false, yes, no, on, off, y, n, ~ or a number); choose another name";
+    const string YamlValueName = "name reads as a YAML value (null, true, false, yes, no, on, off, y, n, ~, a number or a date); choose another name";
     const string NotNuGetId = "is not a NuGet package id (letters, digits, '_', '.' or '-', starting with a letter or digit)";
     const string BadModel = "unknown model alias 'gpt-9' (allowed: haiku, sonnet, opus, fable, inherit or claude-<id>)";
 

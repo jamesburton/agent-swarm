@@ -82,13 +82,19 @@ public class ValidatorTests
     [InlineData("yes")] [InlineData("No")] [InlineData("ON")] [InlineData("off")] [InlineData("y")] [InlineData("N")]
     [InlineData("null")] [InlineData("True")] [InlineData("false")] [InlineData("~")]
     [InlineData("123")] [InlineData("1e3")] [InlineData("0x1F")] [InlineData("0o17")] [InlineData("-1")] [InlineData("1_000")]
+    [InlineData("2026-10-03")] [InlineData("2026-1-3")]
     public void RoleNamesReadAsYamlValues_AreRejected(string n) =>
-        Assert.Equal($"role '{n}': name reads as a YAML value (null, true, false, yes, no, on, off, y, n, ~ or a number); choose another name",
+        Assert.Equal($"role '{n}': name reads as a YAML value (null, true, false, yes, no, on, off, y, n, ~, a number or a date); choose another name",
             First(Make([Code(), Llm(n)], flow: [new Stage(StageType.Fanout, n)])));
 
-    [Theory] [InlineData("yesman")] [InlineData("n1")] [InlineData("e1")] [InlineData("1a")] [InlineData("on-call")]
+    [Theory] [InlineData("yesman")] [InlineData("n1")] [InlineData("e1")] [InlineData("1a")] [InlineData("on-call")] [InlineData("2026-10")] [InlineData("a2026-10-03")]
     public void RoleNamesThatOnlyResembleYamlValues_AreAccepted(string n) =>
         Assert.Empty(Validator.Check(Make([Code(), Llm(n)], flow: [new Stage(StageType.Fanout, n)])));
+
+    [Theory] [InlineData("-")] [InlineData("---")] [InlineData("_")]
+    public void RoleNamesWithoutALetterOrDigit_AreRejected(string n) =>
+        Assert.Equal($"role '{n}': name must contain a letter or a digit",
+            First(Make([Code(), Llm(n)], flow: [new Stage(StageType.Fanout, n)])));
 
     [Fact] public void EmptyFlow_IsRejected() =>
         Assert.Equal("flow is empty (the orchestrator needs at least one stage)", First(Make(flow: [])));

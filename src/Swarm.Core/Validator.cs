@@ -20,6 +20,9 @@ public static class Validator
     static readonly HashSet<string> YamlWords = new(StringComparer.OrdinalIgnoreCase) { "null", "true", "false", "yes", "no", "on", "off", "y", "n", "~" };
 
     // Plain scalars a YAML reader turns into a number (decimal with optional exponent, hex, octal, binary; '_' digit separators).
+    // Timestamps a YAML 1.1 reader (js-yaml's default schema) turns into a date: yyyy-m-d, optionally followed by a time.
+    static readonly Regex YamlDate = new(@"^\d{4}-\d{1,2}-\d{1,2}([Tt ].*)?\z");
+
     static readonly Regex YamlNumber = new(@"^[-+]?(0x[0-9a-f_]+|0o[0-7_]+|0b[01_]+|[0-9][0-9_]*(e[-+]?[0-9]+)?)\z", RegexOptions.IgnoreCase);
 
     /// <summary>True when the version is an exact pinned version such as <c>1.2.3</c> or <c>1.2.3-rc.1</c>.</summary>
@@ -58,8 +61,10 @@ public static class Validator
             .Concat(s.Roles.Select(r => r.EscalateTo).OfType<string>()).ToHashSet(StringComparer.Ordinal);
         foreach (var r in s.Roles.Where(r => r.Kind == RoleKind.Llm))
         {
-            if (YamlWords.Contains(r.Name) || YamlNumber.IsMatch(r.Name))
-                errors.Add($"role '{Show(r.Name)}': name reads as a YAML value (null, true, false, yes, no, on, off, y, n, ~ or a number); choose another name");
+            if (YamlWords.Contains(r.Name) || YamlNumber.IsMatch(r.Name) || YamlDate.IsMatch(r.Name))
+                errors.Add($"role '{Show(r.Name)}': name reads as a YAML value (null, true, false, yes, no, on, off, y, n, ~, a number or a date); choose another name");
+            if (!r.Name.Any(char.IsLetterOrDigit))
+                errors.Add($"role '{Show(r.Name)}': name must contain a letter or a digit");
             if (string.IsNullOrWhiteSpace(r.Model)) errors.Add($"role '{Show(r.Name)}': missing required model");
             else if (!Aliases.Contains(r.Model) && !r.Model.StartsWith("claude-", StringComparison.Ordinal))
                 errors.Add($"role '{Show(r.Name)}': unknown model alias '{Show(r.Model)}' (allowed: haiku, sonnet, opus, fable, inherit or claude-<id>)");

@@ -56,6 +56,11 @@ public class SharedRenderTypesTests
     [InlineData("", false)]
     [InlineData("text mentioning <!-- swarm:generated --> inline\n", false)]
     [InlineData("  // swarm:generated  x\n", false)]
+    [InlineData("---\nname: x\n---\nprompt that quotes <!-- swarm:generated -->\n<!-- swarm:generated -->\n", false)]
+    [InlineData("hand-written\n<!-- swarm:generated -->\n", false)]
+    [InlineData("export const meta = {};\nconst x = 1;\n// swarm:generated\n", false)]
+    [InlineData("// swarm:generated\nexport const meta = {};\n", false)]
+    [InlineData("---\nname: x\n---\n\n<!-- swarm:generated -->\n", false)]
     public void GeneratedMarker_IsDetectedOnlyAsAWholeLine(string content, bool expected) =>
         Assert.Equal(expected, GeneratedMarker.IsPresent(content));
 

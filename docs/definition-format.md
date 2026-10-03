@@ -217,7 +217,7 @@ Validation runs in every front-end before anything is rendered. An error is one 
 |---|---|
 | Names are not empty (swarm, roles, tools, gates) | `swarm name must not be empty`; `role name must not be empty` (likewise `tool name must not be empty`, `gate name must not be empty`) |
 | Names are unique across roles, tools and gates, ignoring case (agent and workflow files are named after them, and Windows and macOS file systems ignore case) | `duplicate name 'worker'`; `names 'worker' and 'Worker' differ only by case` |
-| An `llm` role name does not read as a YAML value (it is written unquoted as the agent file's `name:`) | `role 'yes': name reads as a YAML value (null, true, false, yes, no, on, off, y, n, ~ or a number); choose another name` (any case of the words; numbers such as `42`, `1e3`, `0x1f`, `-1`) |
+| An `llm` role name does not read as a YAML value (it is written unquoted as the agent file's `name:`) | `role 'yes': name reads as a YAML value (null, true, false, yes, no, on, off, y, n, ~, a number or a date); choose another name` (any case of the words; numbers such as `42`, `1e3`, `0x1f`, `-1`) |
 | Model is required on every `llm` role | `role 'worker': missing required model` |
 | Model is one of `haiku`, `sonnet`, `opus`, `fable`, `inherit`, or starts with `claude-` | `role 'worker': unknown model alias 'gpt-9' (allowed: haiku, sonnet, opus, fable, inherit or claude-<id>)` |
 | Every `llm` role is used by a flow stage or an `escalate-to` | `role 'reviewer' is not used by the flow or any escalate-to` |
@@ -302,7 +302,7 @@ Usage and I/O errors exit 2 (also printed as `error: <message>`):
 
 On any failure `swarm render` writes **nothing**: both renderers run fully in memory before the first file is written, every output path is checked to stay inside `--out`, and every file that already exists is checked for the generated marker. (An operating-system error such as a full disk or a denied write in the middle of writing is the one case that can leave earlier files behind.)
 
-Every generated file carries a **marker line**: `<!-- swarm:generated -->` as the first line after the front-matter of an agent file and as the first line of the runbook, `// swarm:generated` as the line after the `meta` line of a script. `swarm render` overwrites an existing file only if it has a line that is exactly one of these markers, so a hand-written `.claude/agents/worker.md` (or one from another tool) is never replaced silently: the render stops with exit 2 and the message above. `--force` overwrites such files anyway. Rendering never deletes, so files from an earlier render under other names stay. Each written file is printed as `wrote <path>` (new) or `overwrote <path>` (replaced).
+Every generated file carries a **marker line**: `<!-- swarm:generated -->` as the first line after the front-matter of an agent file and as the first line of the runbook, `// swarm:generated` as the line after the `meta` line of a script. `swarm render` overwrites an existing file only if the marker is at exactly that position (a marker line pasted elsewhere, such as into a prompt, does not count), so a hand-written `.claude/agents/worker.md` (or one from another tool) is never replaced silently: the render stops with exit 2 and the message above. `--force` overwrites such files anyway. Rendering never deletes, so files from an earlier render under other names stay. Each written file is printed as `wrote <path>` (new) or `overwrote <path>` (replaced).
 
 ## 3. What `swarm render` produces
 

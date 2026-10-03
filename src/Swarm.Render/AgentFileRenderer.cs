@@ -17,8 +17,15 @@ public static partial class AgentFileRenderer
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     };
 
-    [GeneratedRegex("^[A-Za-z0-9_-]+$")]
+    // \z (not $) so a trailing newline cannot slip through.
+    [GeneratedRegex(@"^[A-Za-z0-9_-]{1,64}\z")]
     private static partial Regex SafeStem();
+
+    [GeneratedRegex(@"^[A-Za-z][A-Za-z0-9_.-]*\z")]
+    private static partial Regex SafeValue();
+
+    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_.:*()-]*\z")]
+    private static partial Regex SafeTool();
 
     /// <summary>Renders one agent file per LLM role (the code orchestrator is excluded).</summary>
     /// <param name="s">The swarm definition.</param>
@@ -31,9 +38,9 @@ public static partial class AgentFileRenderer
         foreach (var r in roles)
         {
             if (!SafeStem().IsMatch(r.Name) || ReservedDeviceNames.Contains(r.Name))
-                throw new SwarmException($"role '{r.Name}': name is not a safe file name (use letters, digits, '_' or '-'; not a reserved device name)");
+                throw new SwarmException($"role '{Show(r.Name)}': name is not a safe file name (1-64 letters, digits, '_' or '-'; not a reserved device name)");
             if (!seen.Add(r.Name))
-                throw new SwarmException($"role '{r.Name}': name collides case-insensitively with another role");
+                throw new SwarmException($"role '{Show(r.Name)}': name collides case-insensitively with another role");
         }
 
         var files = new OrderedFiles();
@@ -44,15 +51,19 @@ public static partial class AgentFileRenderer
     static string RenderRole(Role r)
     {
         // The front-matter is written and closed before the prompt, so a '---' line in the prompt cannot affect it.
+        if (string.IsNullOrWhiteSpace(r.Model)) throw new SwarmException($"role '{Show(r.Name)}': model is missing");
+        if (r.Tools.Count == 0)
+            throw new SwarmException($"role '{Show(r.Name)}': tools list is empty (Claude Code would grant all tools); list tools explicitly");
+
         var sb = new StringBuilder();
         sb.Append("---\n");
-        sb.Append("name: ").Append(Plain(r.Name, "name")).Append('\n');
+        sb.Append("name: ").Append(r.Name).Append('\n');
         sb.Append("description: ").Append(Quote(r.Description, r.Name)).Append('\n');
-        sb.Append("model: ").Append(Plain(r.Model ?? "", "model")).Append('\n');
-        sb.Append("tools: ").Append(string.Join(", ", r.Tools.Select(t => Plain(t, "tools")))).Append('\n');
+        sb.Append("model: ").Append(Plain(r.Model, SafeValue(), r.Name, "model")).Append('\n');
+        sb.Append("tools: ").Append(string.Join(", ", r.Tools.Select(t => Plain(t, SafeTool(), r.Name, "tools")))).Append('\n');
         if (r.MaxTurns is { } m) sb.Append("maxTurns: ").Append(m).Append('\n');
-        if (r.Effort is { } e) sb.Append("effort: ").Append(Plain(e, "effort")).Append('\n');
-        if (r.Isolation is { } i) sb.Append("isolation: ").Append(Plain(i, "isolation")).Append('\n');
+        if (r.Effort is { } e) sb.Append("effort: ").Append(Plain(e, SafeValue(), r.Name, "effort")).Append('\n');
+        if (r.Isolation is { } i) sb.Append("isolation: ").Append(Plain(i, SafeValue(), r.Name, "isolation")).Append('\n');
         sb.Append("---\n");
 
         sb.Append(Prompt(r.Prompt, r.Name).TrimEnd('\n')).Append('\n');
@@ -60,12 +71,14 @@ public static partial class AgentFileRenderer
         return sb.ToString();
     }
 
-    // Unquoted front-matter scalar: must be a single line with no control characters.
-    static string Plain(string value, string field)
-    {
-        if (value.Any(char.IsControl)) throw new SwarmException($"field '{field}' contains a control character");
-        return value;
-    }
+    // Unquoted front-matter scalar: restricted by pattern so it cannot split, comment out or break the YAML value.
+    static string Plain(string value, Regex safe, string role, string field) =>
+        safe.IsMatch(value) ? value : throw new SwarmException($"role '{Show(role)}': field '{field}' has an unsafe value '{Show(value)}'");
+
+    // Renders a value for an error message on one line (control and line-separator characters replaced).
+    static string Show(string value) => new(value.Select(c => IsUnsafeChar(c) ? '?' : c).ToArray());
+
+    static bool IsUnsafeChar(char c) => char.IsControl(c) || c is '\u2028' or '\u2029';
 
     // Always double-quoted; backslash, quote and common whitespace controls are escaped, other controls rejected.
     static string Quote(string value, string role)
@@ -81,7 +94,7 @@ public static partial class AgentFileRenderer
                 case '\r': sb.Append("\\r"); break;
                 case '\t': sb.Append("\\t"); break;
                 default:
-                    if (char.IsControl(c)) throw new SwarmException($"role '{role}': description contains a control character");
+                    if (IsUnsafeChar(c)) throw new SwarmException($"role '{role}': description contains a control character");
                     sb.Append(c);
                     break;
             }

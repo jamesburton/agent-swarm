@@ -96,7 +96,114 @@ public class AgentFileRendererTests
     }
 
     [Fact] public void PromptCrLfIsNormalisedToLf() =>
-        Assert.DoesNotContain('\r', Worker(prompt: "a\r\nb\rc"));
+        Assert.Equal("---\nname: worker\ndescription: \"d\"\nmodel: haiku\ntools: Read\n---\na\nb\nc\n", Worker(prompt: "a\r\nb\rc"));
+
+    // Hand-built definition: bypasses the builder/validator, as a caller constructing the record directly could.
+    static SwarmDefinition Mutated(Func<Role, Role> change)
+    {
+        var s = WithWorker();
+        return s with { Roles = s.Roles.Select(r => r.Kind == RoleKind.Llm ? change(r) : r).ToList() };
+    }
+
+    static string Render(Func<Role, Role> change) => AgentFileRenderer.Render(Mutated(change))[".claude/agents/worker.md"];
+
+    [Theory]
+    [InlineData("Read, Bash")]
+    [InlineData("Read,Bash")]
+    [InlineData("*")]
+    [InlineData("[x]")]
+    [InlineData("a b")]
+    [InlineData("a #b")]
+    [InlineData("")]
+    [InlineData("a\tb")]
+    [InlineData("a\u0001b")]
+    [InlineData("a\u2028b")]
+    public void UnsafeToolEntriesAreRejected(string tool)
+    {
+        var m = Msg(() => Render(r => r with { Tools = [tool] }));
+        Assert.Contains("role 'worker'", m);
+        Assert.Contains("tools", m);
+    }
+
+    [Theory]
+    [InlineData("a: b")]
+    [InlineData("a #b")]
+    [InlineData("*x")]
+    [InlineData("[x")]
+    [InlineData("{x")]
+    [InlineData("\"x")]
+    [InlineData("1abc")]
+    [InlineData("a\u0001b")]
+    [InlineData("a\tb")]
+    [InlineData("a\u2029b")]
+    [InlineData("a\nb")]
+    public void UnsafeModelIsRejected(string model)
+    {
+        var m = Msg(() => Render(r => r with { Model = model }));
+        Assert.Contains("role 'worker'", m);
+        Assert.Contains("model", m);
+    }
+
+    [Theory]
+    [InlineData("a: b")]
+    [InlineData("*x")]
+    [InlineData("a\u0001b")]
+    public void UnsafeEffortAndIsolationAreRejected(string value)
+    {
+        Assert.Contains("effort", Msg(() => Render(r => r with { Effort = value })));
+        Assert.Contains("isolation", Msg(() => Render(r => r with { Isolation = value })));
+    }
+
+    [Fact] public void LegalPlainValuesAreAccepted()
+    {
+        var text = Render(r => r with { Model = "claude-haiku-4-5-20251001", Tools = ["Bash(git:*)", "mcp__server__tool", "Read"] });
+        Assert.Contains("\nmodel: claude-haiku-4-5-20251001\n", text);
+        Assert.Contains("\ntools: Bash(git:*), mcp__server__tool, Read\n", text);
+    }
+
+    [Fact] public void EmptyToolsListIsRejected() =>
+        Assert.Equal("role 'worker': tools list is empty (Claude Code would grant all tools); list tools explicitly",
+            Msg(() => Render(r => r with { Tools = [] })));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void MissingModelIsRejected(string? model) =>
+        Assert.Equal("role 'worker': model is missing", Msg(() => Render(r => r with { Model = model })));
+
+    [Fact] public void RoleNameWithTrailingNewlineIsRejectedAsUnsafeName() =>
+        Assert.Contains("not a safe file name", Msg(() => AgentFileRenderer.Render(Mutated(r => r with { Name = "worker\n" }))));
+
+    [Fact] public void RoleNameLengthIsCappedAt64()
+    {
+        Assert.Contains(".claude/agents/" + new string('a', 64) + ".md", AgentFileRenderer.Render(WithWorker(new string('a', 64))).Keys);
+        Assert.Contains("not a safe file name", Msg(() => AgentFileRenderer.Render(WithWorker(new string('a', 65)))));
+    }
+
+    [Theory]
+    [InlineData("a\u007Fb")]
+    [InlineData("a\u0085b")]
+    [InlineData("a\u0001b")]
+    public void PromptControlCharactersAreRejected(string prompt) =>
+        Assert.Contains("prompt contains a control character", Msg(() => Worker(prompt: prompt)));
+
+    [Fact] public void PromptTabAndLineSeparatorsAreAllowed()
+    {
+        var text = Worker(prompt: "a\n\tindented\u2028b\u2029c");
+        Assert.EndsWith("---\na\n\tindented\u2028b\u2029c\n", text);
+    }
+
+    [Fact] public void DescriptionTabIsEscaped() =>
+        Assert.Contains("\ndescription: \"a\\tb\"\n", Worker("a\tb"));
+
+    [Theory]
+    [InlineData("a\u2028b")]
+    [InlineData("a\u2029b")]
+    [InlineData("a\u007Fb")]
+    [InlineData("a\u0085b")]
+    public void DescriptionLineSeparatorsAndOtherControlsAreRejected(string d) =>
+        Assert.Contains("control character", Msg(() => Worker(d)));
 
     [Theory]
     [InlineData("../x")]

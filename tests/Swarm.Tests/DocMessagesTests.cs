@@ -95,7 +95,7 @@ public class DocMessagesTests
         { Yaml("    effort: low\n", "    effort: lots\n"), "unknown effort 'lots' in role 'worker'" },
         { Yaml("    version: 0.1.0\n", "    version: 1.0\n"), "tool 'squash': exact pinned version required (got '1.0')" },
         { Yaml("\"gate:batch-green\", ", "\"\", "), "empty entry in role 'orchestrator' flow" },
-        { Yaml("tools: [Read, Grep, Glob]", "tools: [Read, \"\", Glob]"), "empty entry in role 'reviewer' tools" },
+        { Yaml("tools: [Read, Grep, Glob, Bash]", "tools: [Read, \"\", Glob]"), "empty entry in role 'reviewer' tools" },
         { Yaml("    kind: code\n    flow:", "    kind: code\n    model: haiku\n    flow:"), "unknown key 'model' in code role 'orchestrator'" },
         { Yaml("    effort: low\n", "    effort: low\n    flow: [a]\n"), "unknown key 'flow' in llm role 'worker'" },
         { Yaml("  squash:\n    package: Swarm.Squash\n    version: 0.1.0\n", "  squash: \"\"\n"), "invalid YAML (line 40): Exception during deserialization" },

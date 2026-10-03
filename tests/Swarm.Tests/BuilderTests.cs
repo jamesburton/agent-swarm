@@ -14,7 +14,7 @@ public class BuilderTests
             .Tools("Read", "Edit", "Grep", "Glob", "Bash").MaxTurns(40).Effort("high").Isolation("worktree").Context("distilled")
             .Prompt("You are given a distilled summary: goal, state, files, failed attempts with reasons, open question. Do not repeat the listed failed attempts."))
         .Llm("reviewer", r => r.Model("sonnet").Description("Reviews a green batch diff for correctness and style.")
-            .Tools("Read", "Grep", "Glob").MaxTurns(15).Effort("medium").Prompt("Review the diff. Report blocking issues first."))
+            .Tools("Read", "Grep", "Glob", "Bash").MaxTurns(15).Effort("medium").Prompt("Review the diff. Report blocking issues first."))
         .Tool("squash", "Swarm.Squash", "0.1.0")
         .Tool("testgate", "Swarm.TestGate", "0.1.0")
         .Gate("batch-green", "test", "testgate")

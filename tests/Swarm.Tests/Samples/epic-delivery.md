@@ -32,7 +32,7 @@ You are given a distilled summary: goal, state, files, failed attempts with reas
 ## reviewer  (llm)
 model: sonnet
 description: Reviews a green batch diff for correctness and style.
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, Bash
 maxTurns: 15
 effort: medium
 Review the diff. Report blocking issues first.

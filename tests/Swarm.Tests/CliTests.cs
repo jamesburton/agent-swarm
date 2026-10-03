@@ -157,7 +157,7 @@ public class CliTests : IDisposable
 
     [Theory]
     [InlineData("kind: test", "kind: unit test", "gate 'batch-green': kind 'unit test' is unsafe")]
-    [InlineData("tools: Read, Grep, Glob", "tools: Read, Bash(git commit:*)", "field 'tools' has an unsafe value")]
+    [InlineData("tools: Read, Grep, Glob, Bash", "tools: Read, Bash(git commit:*)", "field 'tools' has an unsafe value")]
     [InlineData("## reviewer  (llm)", "## con  (llm)", "role 'con': name is not a safe file name")]
     [InlineData("You implement one task.", "You implement\u200B one task.", "invisible Unicode format character (U+200B)")]
     public void ValidateRejectsWhatRenderRejects(string from, string to, string message)

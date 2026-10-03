@@ -31,7 +31,7 @@ roles:
     kind: llm
     model: sonnet
     description: Reviews a green batch diff for correctness and style.
-    tools: [Read, Grep, Glob]
+    tools: [Read, Grep, Glob, Bash]
     maxTurns: 15
     effort: medium
     prompt: |

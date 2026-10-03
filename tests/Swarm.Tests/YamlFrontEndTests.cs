@@ -73,7 +73,7 @@ public class YamlFrontEndTests
 
     [Fact] public void MalformedYaml_IsOneLineSwarmException() => Fails("name: [unclosed\nroles: {");
 
-    [Fact] public void WrongShape_IsOneLineSwarmException() => Assert.Contains("invalid YAML", Fails(Sample.Replace("tools: [Read, Grep, Glob]", "tools: nope")).Message);
+    [Fact] public void WrongShape_IsOneLineSwarmException() => Assert.Contains("invalid YAML", Fails(Sample.Replace("tools: [Read, Grep, Glob, Bash]", "tools: nope")).Message);
 
     [Fact] public void NonMappingDocument_Throws() => Fails("- a\n- b\n");
 

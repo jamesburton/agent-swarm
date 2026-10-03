@@ -97,7 +97,7 @@ You are given a distilled summary: goal, state, files, failed attempts with reas
 ## reviewer  (llm)
 model: sonnet
 description: Reviews a green batch diff for correctness and style.
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, Bash
 maxTurns: 15
 effort: medium
 Review the diff. Report blocking issues first.
@@ -194,7 +194,7 @@ var swarm = SwarmBuilder.Define("epic-delivery", "Deliver an epic with cheap wor
     .Llm("reviewer", r => r
         .Model("sonnet")
         .Description("Reviews a green batch diff for correctness and style.")
-        .Tools("Read", "Grep", "Glob")
+        .Tools("Read", "Grep", "Glob", "Bash")
         .MaxTurns(15).Effort("medium")
         .Prompt("Review the diff. Report blocking issues first."))
     // NOT REAL: Swarm.Squash and Swarm.TestGate are example package ids; review every package id before running the runbook.
@@ -362,7 +362,7 @@ You start with NO prior conversation: everything you know is in the distilled ha
 name: reviewer
 description: "Reviews a green batch diff for correctness and style."
 model: sonnet
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, Bash
 maxTurns: 15
 effort: medium
 ---

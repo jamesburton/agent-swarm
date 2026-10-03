@@ -30,7 +30,7 @@ public class DocSnippetTests
             .Llm("reviewer", r => r
                 .Model("sonnet")
                 .Description("Reviews a green batch diff for correctness and style.")
-                .Tools("Read", "Grep", "Glob")
+                .Tools("Read", "Grep", "Glob", "Bash")
                 .MaxTurns(15).Effort("medium")
                 .Prompt("Review the diff. Report blocking issues first."))
             // NOT REAL: Swarm.Squash and Swarm.TestGate are example package ids; review every package id before running the runbook.

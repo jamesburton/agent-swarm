@@ -97,9 +97,90 @@ public class CliTests : IDisposable
             Assert.Equal(v, File.ReadAllText(Path.Combine(o, k)));
         }
 
-        var lines = r.Out.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).ToArray();
-        Assert.Equal(expected.Select(p => p.Key).Concat([Note]), lines);
+        Assert.Equal(expected.Select(p => "wrote " + p.Key).Concat([Note]), Lines(r.Out));
     }
+
+    static string[] Lines(string text) => text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).ToArray();
+
+    [Fact] public void RenderAgainSaysOverwrote()
+    {
+        var o = Path.Combine(tmp, "out");
+        Assert.Equal(0, Run("render", Sample("epic-delivery.md"), "--out", o).Code);
+        var r = Run("render", Sample("epic-delivery.md"), "--out", o);
+        Assert.Equal(0, r.Code);
+        Assert.Equal(AllRendered().Select(p => "overwrote " + p.Key).Concat([Note]), Lines(r.Out));
+    }
+
+    [Fact] public void RenderRefusesToOverwriteAHandWrittenFileAndWritesNothing()
+    {
+        var o = Path.Combine(tmp, "out");
+        var mine = Path.Combine(o, ".claude", "workflows", "epic-delivery.steps.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(mine)!);
+        File.WriteAllText(mine, "# my own runbook\n");
+        var r = Run("render", Sample("epic-delivery.md"), "--out", o);
+        AssertOneErrorLine(r, 2);
+        Assert.Equal("error: refusing to overwrite '.claude/workflows/epic-delivery.steps.md': it has no swarm:generated marker (it was not written by swarm render); use --force to overwrite it", r.Err.TrimEnd());
+        Assert.Equal(new[] { ".claude/workflows/epic-delivery.steps.md" }, Relative(o));
+        Assert.Equal("# my own runbook\n", File.ReadAllText(mine));
+    }
+
+    [Fact] public void RenderNamesTheFirstHandWrittenFileInOutputOrder()
+    {
+        var o = Path.Combine(tmp, "out");
+        foreach (var rel in new[] { ".claude/workflows/epic-delivery.1.js", ".claude/agents/reviewer.md" })
+        {
+            var p = Path.Combine(o, rel);
+            Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+            File.WriteAllText(p, "mine\n");
+        }
+
+        Assert.Contains("'.claude/agents/reviewer.md'", Run("render", Sample("epic-delivery.md"), "--out", o).Err);
+    }
+
+    [Fact] public void RenderWithForceOverwritesHandWrittenFiles()
+    {
+        var o = Path.Combine(tmp, "out");
+        var mine = Path.Combine(o, ".claude", "agents", "worker.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(mine)!);
+        File.WriteAllText(mine, "mine\n");
+        var r = Run("render", Sample("epic-delivery.md"), "--force", "--out", o);
+        Assert.Equal(0, r.Code);
+        Assert.Contains("overwrote .claude/agents/worker.md", Lines(r.Out));
+        Assert.Contains("wrote .claude/agents/expert.md", Lines(r.Out));
+        Assert.Equal(AllRendered().Single(p => p.Key == ".claude/agents/worker.md").Value, File.ReadAllText(mine));
+    }
+
+    [Fact] public void ForceGivenTwiceIsExit2() =>
+        AssertOneErrorLine(Run("render", Sample("epic-delivery.md"), "--out", Path.Combine(tmp, "o"), "--force", "--force"), 2);
+
+    [Fact] public void ForceOnValidateIsExit2() => AssertOneErrorLine(Run("validate", Sample("epic-delivery.md"), "--force"), 2);
+
+    [Theory]
+    [InlineData("kind: test", "kind: unit test", "gate 'batch-green': kind 'unit test' is unsafe")]
+    [InlineData("tools: Read, Grep, Glob", "tools: Read, Bash(git commit:*)", "field 'tools' has an unsafe value")]
+    [InlineData("## reviewer  (llm)", "## con  (llm)", "role 'con': name is not a safe file name")]
+    [InlineData("You implement one task.", "You implement\u200B one task.", "invisible Unicode format character (U+200B)")]
+    public void ValidateRejectsWhatRenderRejects(string from, string to, string message)
+    {
+        var text = TestSamples.Markdown().Replace(from, to).Replace("reviewer, tool", to.StartsWith("## con") ? "con, tool" : "reviewer, tool");
+        var p = Write("v.md", text);
+        var v = Run("validate", p);
+        AssertOneErrorLine(v, 1);
+        Assert.Contains(message, v.Err);
+        var o = Path.Combine(tmp, "o");
+        Assert.Equal((v.Code, v.Err), (Run("render", p, "--out", o).Code, Run("render", p, "--out", o).Err));
+        Assert.False(Directory.Exists(o));
+    }
+
+    [Fact] public void InputOverOneMegabyteIsExit2()
+    {
+        var p = Write("big.yaml", TestSamples.Yaml() + "# " + new string('x', 1024 * 1024) + "\n");
+        var r = Run("validate", p);
+        AssertOneErrorLine(r, 2);
+        Assert.Contains("file is larger than 1 MB", r.Err);
+    }
+
+    [Fact] public void HelpMentionsForce() => Assert.Contains("swarm render <file> --out <dir> [--force]", Run("--help").Out);
 
     [Fact] public void RenderInvalidWritesNothing()
     {

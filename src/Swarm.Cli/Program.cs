@@ -13,13 +13,18 @@ public static class Program
 
         Usage:
           swarm validate <file>
-          swarm render <file> --out <dir>
+          swarm render <file> --out <dir> [--force]
           swarm --version
           swarm --help
 
-        <file> is a .md, .yaml or .yml swarm definition.
+        <file> is a .md, .yaml or .yml swarm definition (at most 1 MB).
+        validate checks everything render checks, without writing anything.
+        render refuses to overwrite a file that lacks the swarm:generated marker
+        (a hand-written file) unless --force is given.
         Exit codes: 0 ok, 1 invalid definition, 2 usage or I/O error.
         """;
+
+    const long MaxInputBytes = 1024 * 1024;
 
     const string RestartNote = "Note: generated agent files are only visible to a Claude Code session started after they exist; restart or open a new session.";
 
@@ -108,10 +113,11 @@ public static class Program
         return plus < 0 ? v : v[..plus];
     }
 
-    static (string File, string? Out) Parse(string[] args, bool withOut)
+    static (string File, string? Out, bool Force) Parse(string[] args, bool withOut)
     {
         string? file = null;
         string? outDir = null;
+        var force = false;
         for (var i = 1; i < args.Length; i++)
         {
             var a = args[i];
@@ -129,6 +135,10 @@ public static class Program
                 {
                     throw new UsageException("--out must not be empty");
                 }
+            }
+            else if (withOut && a == "--force")
+            {
+                force = !force ? true : throw new UsageException("--force was given more than once");
             }
             else if (a.StartsWith('-'))
             {
@@ -150,7 +160,7 @@ public static class Program
             throw new UsageException("missing required option --out <dir>");
         }
 
-        return (file, outDir);
+        return (file, outDir, force);
     }
 
     static SwarmDefinition Load(string file)
@@ -166,30 +176,36 @@ public static class Program
             throw new UsageException($"file not found: {file}");
         }
 
+        if (new FileInfo(file).Length > MaxInputBytes)
+        {
+            throw new UsageException($"file is larger than 1 MB: {file}");
+        }
+
         return parse(File.ReadAllText(file));
     }
 
-    static int Validate((string File, string? Out) a, TextWriter stdout)
+    static int Validate((string File, string? Out, bool Force) a, TextWriter stdout)
     {
-        Load(a.File);
+        // Rendering in memory (and discarding the result) makes "ok" mean "render will succeed".
+        SwarmRenderer.Render(Load(a.File));
         stdout.WriteLine("ok");
         return 0;
     }
 
-    static int RenderCommand((string File, string? Out) a, TextWriter stdout)
+    static int RenderCommand((string File, string? Out, bool Force) a, TextWriter stdout)
     {
         var def = Load(a.File);
 
         // Render everything in memory first so any failure writes nothing.
-        var files = AgentFileRenderer.Render(def).Concat(WorkflowRenderer.Render(def)).ToList();
+        var files = SwarmRenderer.Render(def);
         if (File.Exists(a.Out!))
         {
             throw new UsageException($"--out is a file, not a directory: {a.Out}");
         }
 
-        foreach (var path in OutputPaths.WriteAll(a.Out!, files))
+        foreach (var f in OutputPaths.WriteAll(a.Out!, files, a.Force))
         {
-            stdout.WriteLine(path);
+            stdout.WriteLine($"{(f.Overwrote ? "overwrote" : "wrote")} {f.Path}");
         }
 
         stdout.WriteLine(RestartNote);

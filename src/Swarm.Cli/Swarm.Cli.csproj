@@ -1,13 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Swarm.Core\Swarm.Core.csproj" />
     <ProjectReference Include="..\Swarm.Formats\Swarm.Formats.csproj" />
     <ProjectReference Include="..\Swarm.Render\Swarm.Render.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="System.CommandLine" Version="2.0.12" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Text;
 using System.Text.RegularExpressions;
 using Swarm.Core;
@@ -9,17 +8,6 @@ namespace Swarm.Render;
 public static partial class AgentFileRenderer
 {
     const string DistilledNote = "You start with NO prior conversation: everything you know is in the distilled hand-off you were given.";
-
-    static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "CON", "PRN", "AUX", "NUL",
-        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-    };
-
-    // \z (not $) so a trailing newline cannot slip through.
-    [GeneratedRegex(@"^[A-Za-z0-9_-]{1,64}\z")]
-    private static partial Regex SafeStem();
 
     [GeneratedRegex(@"^[A-Za-z][A-Za-z0-9_.-]*\z")]
     private static partial Regex SafeValue();
@@ -34,16 +22,9 @@ public static partial class AgentFileRenderer
     public static IReadOnlyDictionary<string, string> Render(SwarmDefinition s)
     {
         var roles = s.Roles.Where(r => r.Kind == RoleKind.Llm).ToList();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var r in roles)
-        {
-            if (!SafeStem().IsMatch(r.Name) || ReservedDeviceNames.Contains(r.Name))
-                throw new SwarmException($"role '{Show(r.Name)}': name is not a safe file name (1-64 letters, digits, '_' or '-'; not a reserved device name)");
-            if (!seen.Add(r.Name))
-                throw new SwarmException($"role '{Show(r.Name)}': name collides case-insensitively with another role");
-        }
+        SafeStems.Validate(roles.Select(r => r.Name), "role");
 
-        var files = new OrderedFiles();
+        var files = new RenderedFiles();
         foreach (var r in roles) files.Add($".claude/agents/{r.Name}.md", RenderRole(r));
         return files;
     }
@@ -76,7 +57,7 @@ public static partial class AgentFileRenderer
         safe.IsMatch(value) ? value : throw new SwarmException($"role '{Show(role)}': field '{field}' has an unsafe value '{Show(value)}'");
 
     // Renders a value for an error message on one line (control and line-separator characters replaced).
-    static string Show(string value) => new(value.Select(c => IsUnsafeChar(c) ? '?' : c).ToArray());
+    static string Show(string value) => SafeStems.Show(value);
 
     static bool IsUnsafeChar(char c) => char.IsControl(c) || c is '\u2028' or '\u2029';
 
@@ -110,38 +91,5 @@ public static partial class AgentFileRenderer
         if (text.Any(c => char.IsControl(c) && c != '\n' && c != '\t'))
             throw new SwarmException($"role '{role}': prompt contains a control character");
         return text;
-    }
-
-    // Insertion-ordered read-only map (a plain Dictionary does not guarantee enumeration order).
-    sealed class OrderedFiles : IReadOnlyDictionary<string, string>
-    {
-        readonly List<KeyValuePair<string, string>> items = [];
-
-        public void Add(string key, string value) => items.Add(new(key, value));
-
-        public string this[string key] => items.First(p => p.Key == key).Value;
-
-        public IEnumerable<string> Keys => items.Select(p => p.Key);
-
-        public IEnumerable<string> Values => items.Select(p => p.Value);
-
-        public int Count => items.Count;
-
-        public bool ContainsKey(string key) => items.Any(p => p.Key == key);
-
-        public bool TryGetValue(string key, out string value)
-        {
-            foreach (var p in items)
-            {
-                if (p.Key == key) { value = p.Value; return true; }
-            }
-
-            value = "";
-            return false;
-        }
-
-        public IEnumerator<KeyValuePair<string, string>> GetEnumerator() => items.GetEnumerator();
-
-        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

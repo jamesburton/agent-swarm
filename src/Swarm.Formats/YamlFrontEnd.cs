@@ -93,6 +93,7 @@ public static class YamlFrontEnd
                         if (k is YamlScalarNode { Value: "<<" }) throw Unsupported(k);
                         RejectAnchor(k);
                         RejectAnchor(v);
+                        // Deliberate: an empty/null value (e.g. `prompt:`, `description:`, `tools:`, `args:`) is rejected; `[]` and `""` remain allowed.
                         if (k is YamlScalarNode key && v is YamlScalarNode { Style: ScalarStyle.Plain, Value: null or "" or "~" or "null" or "Null" or "NULL" })
                             throw new YamlException(k.Start, k.End, $"key '{key.Value}' has no value");
                         if (k is YamlScalarNode s && !seen.Add(s.Value ?? ""))
@@ -102,7 +103,11 @@ public static class YamlFrontEnd
                     break;
                 case YamlSequenceNode seq:
                     RejectAnchor(seq);
-                    foreach (var c in seq.Children) Walk(c);
+                    foreach (var c in seq.Children)
+                    {
+                        RejectAnchor(c);
+                        Walk(c);
+                    }
                     break;
             }
         }

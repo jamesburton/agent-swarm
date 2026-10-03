@@ -109,6 +109,16 @@ public class YamlFrontEndTests
     public void AnchorsAliasesAndMergeKeys_AreRejected(string from, string to) =>
         Assert.Contains("anchors/aliases/merge keys are not supported", Fails(Sample.Replace(from, to)).Message);
 
+    [Theory]
+    [InlineData("[Read, Edit, Write, Grep, Glob, Bash]", "[&a Read, Edit]")]
+    [InlineData("[Read, Edit, Write, Grep, Glob, Bash]", "[&a Read, *a]")]
+    [InlineData("[Read, Edit, Write, Grep, Glob, Bash]", "[Read, [&a Edit]]")]
+    [InlineData("[Read, Edit, Write, Grep, Glob, Bash]", "[Read, &a [Edit]]")]
+    [InlineData("[Read, Edit, Write, Grep, Glob, Bash]", "[Read, &a {x: y}]")]
+    [InlineData("[@Q@worker*@Q@,", "[&a @Q@worker*@Q@, *a,")]
+    public void AnchorsInsideSequences_AreRejected(string from, string to) =>
+        Assert.Contains("anchors/aliases/merge keys are not supported", Fails(Sample.Replace(from.Replace("@Q@", "\""), to.Replace("@Q@", "\""))).Message);
+
     [Fact] public void NullToolBody_Throws() => Assert.Contains("key 'squash' has no value", Fails(Sample.Replace("  squash:\n    package: Swarm.Squash\n    version: 0.1.0\n", "  squash:\n")).Message);
 
     [Fact] public void NullGateBody_Throws() => Assert.Contains("key 'batch-green' has no value", Fails(Sample.Replace("  batch-green:\n    kind: test\n    tool: squash\n", "  batch-green:\n")).Message);

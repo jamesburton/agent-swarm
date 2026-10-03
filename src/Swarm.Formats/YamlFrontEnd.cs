@@ -62,7 +62,7 @@ public static class YamlFrontEnd
     /// <exception cref="SwarmException">Thrown when the text is malformed or invalid; the message is always a single line.</exception>
     public static SwarmDefinition Parse(string yaml)
     {
-        var text = yaml.TrimStart('\uFEFF').ReplaceLineEndings("\n");
+        var text = yaml.TrimStart('\uFEFF').Replace("\r\n", "\n").Replace('\r', '\n');
         SwarmDto? dto;
         try
         {

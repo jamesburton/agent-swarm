@@ -23,6 +23,13 @@ public class MarkdownFrontEndTests
     [Fact] public void CrlfInput_ParsesIdentically() =>
         Assert.Equal(MarkdownFrontEnd.Parse(Sample).Flow, MarkdownFrontEnd.Parse(Sample.Replace("\n", "\r\n")).Flow);
 
+    [Fact] public void UnicodeLineSeparatorInDescription_IsKeptForTheRendererToReject()
+    {
+        var text = Sample.Replace("description: Reviews a green batch diff for correctness and style.", "description: Reviews a green batch diff\u2028for correctness and style.");
+        Assert.NotEqual(Sample, text);
+        Assert.Contains("diff\u2028for", MarkdownFrontEnd.Parse(text).Roles.Single(r => r.Name == "reviewer").Description);
+    }
+
     [Fact] public void Bom_IsTolerated() =>
         Assert.Equal("epic-delivery", MarkdownFrontEnd.Parse("﻿" + Sample).Name);
 

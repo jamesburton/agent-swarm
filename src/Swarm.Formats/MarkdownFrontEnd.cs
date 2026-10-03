@@ -27,7 +27,7 @@ public static class MarkdownFrontEnd
     /// <exception cref="SwarmException">Thrown when the text is malformed or invalid.</exception>
     public static SwarmDefinition Parse(string text)
     {
-        var lines = text.TrimStart('\uFEFF').ReplaceLineEndings("\n").Split('\n').ToList();
+        var lines = text.TrimStart('\uFEFF').Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').ToList();
         var meta = new Dictionary<string, string>();
         if (lines[0].Trim() == "---")
         {

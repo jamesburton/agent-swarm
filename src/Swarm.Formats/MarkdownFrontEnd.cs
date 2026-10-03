@@ -10,9 +10,13 @@ public static class MarkdownFrontEnd
     static readonly Regex RoleHeading = new(@"^##\s+([A-Za-z][\w-]*)\s*\((code|llm)\)\s*$");
     static readonly Regex ToolHeading = new(@"^##\s+tool:\s*([A-Za-z][\w-]*)\s*$");
     static readonly Regex GateHeading = new(@"^##\s+gate:\s*([A-Za-z][\w-]*)\s*$");
-    static readonly Regex KeyValue = new(@"^([a-z][A-Za-z-]*):\s*(.*)$");
+    static readonly Regex KeyValue = new(@"^([A-Za-z][\w-]*):\s*(.*)$");
 
     static readonly HashSet<string> RoleKeys = ["model", "description", "tools", "maxTurns", "effort", "isolation", "escalate-to", "context"];
+    static readonly Regex AnyHeading = new(@"^##(\s|$)");
+    static readonly HashSet<string> ToolKeys = ["package", "version", "args"];
+    static readonly HashSet<string> GateKeys = ["kind", "tool"];
+    static readonly HashSet<string> CodeKeys = ["flow"];
     static readonly HashSet<string> Efforts = ["low", "medium", "high", "xhigh", "max"];
 
     enum SectionKind { Code, Llm, Tool, Gate }
@@ -70,7 +74,7 @@ public static class MarkdownFrontEnd
 
         foreach (var line in lines)
         {
-            if (line.StartsWith("## ", StringComparison.Ordinal))
+            if (AnyHeading.IsMatch(line))
             {
                 Flush();
                 if (RoleHeading.Match(line) is { Success: true } rm) (cur, kind) = (rm.Groups[1].Value, rm.Groups[2].Value == "code" ? SectionKind.Code : SectionKind.Llm);
@@ -82,16 +86,26 @@ public static class MarkdownFrontEnd
             else if (body.Length == 0 && KeyValue.Match(line) is { Success: true } m)
             {
                 // Keys only count before the prompt body starts (llm roles keep later "key: value" text in the prompt).
+                var allowed = kind switch { SectionKind.Tool => ToolKeys, SectionKind.Gate => GateKeys, SectionKind.Code => CodeKeys, _ => null };
+                if (allowed != null && !allowed.Contains(m.Groups[1].Value))
+                    throw new SwarmException($"unknown key '{m.Groups[1].Value}' in {kind.ToString().ToLowerInvariant()} '{cur}'");
                 if (!kv.TryAdd(m.Groups[1].Value, m.Groups[2].Value.Trim()))
                     throw new SwarmException($"duplicate key '{m.Groups[1].Value}' in '{cur}'");
             }
-            else body.AppendLine(line);
+            else if (kind != SectionKind.Llm) throw new SwarmException($"unexpected text in {kind.ToString().ToLowerInvariant()} '{cur}': '{line.Trim()}'");
+            else body.Append(line).Append('\n');
         }
         Flush();
         return Validator.Validated(new SwarmDefinition(name, meta.GetValueOrDefault("description") ?? "", roles, tools, gates, flow));
     }
 
-    static string[] List(string? v) => (v ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    static string[] List(string? v)
+    {
+        if (string.IsNullOrWhiteSpace(v)) return [];
+        var items = v.Split(',', StringSplitOptions.TrimEntries);
+        if (items.Any(i => i.Length == 0)) throw new SwarmException($"empty entry in list '{v}'");
+        return items;
+    }
 
     static Role MakeLlmRole(string name, Dictionary<string, string> kv, string body, string swarm)
     {

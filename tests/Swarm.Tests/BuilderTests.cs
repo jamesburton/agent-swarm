@@ -1,4 +1,5 @@
 using Swarm.Core;
+using static TestSamples;
 
 public class BuilderTests
 {
@@ -10,20 +11,14 @@ public class BuilderTests
             .Tools("Read", "Edit", "Write", "Grep", "Glob", "Bash").MaxTurns(30).Effort("low").Isolation("worktree").EscalateTo("expert")
             .Prompt("You implement one task. Run only the targeted tests. Return status, branch, commit, test summary and at most 10 lines of notes."))
         .Llm("expert", r => r.Model("opus").Description("Solves what a worker could not, from a distilled hand-off.")
-            .Tools("Read", "Edit", "Grep", "Glob", "Bash").MaxTurns(40).Effort("high").Context("distilled")
+            .Tools("Read", "Edit", "Grep", "Glob", "Bash").MaxTurns(40).Effort("high").Isolation("worktree").Context("distilled")
             .Prompt("You are given a distilled summary: goal, state, files, failed attempts with reasons, open question. Do not repeat the listed failed attempts."))
         .Llm("reviewer", r => r.Model("sonnet").Description("Reviews a green batch diff for correctness and style.")
             .Tools("Read", "Grep", "Glob").MaxTurns(15).Effort("medium").Prompt("Review the diff. Report blocking issues first."))
         .Tool("squash", "Swarm.Squash", "0.1.0")
-        .Gate("batch-green", "test", "squash")
+        .Tool("testgate", "Swarm.TestGate", "0.1.0")
+        .Gate("batch-green", "test", "testgate")
         .Build();
-
-    static string Shape(SwarmDefinition s) => string.Join("|",
-        [s.Name, s.Description,
-         .. s.Roles.Select(r => $"R:{r.Name},{r.Kind},{r.Model},{r.Description},{string.Join(';', r.Tools)},{r.MaxTurns},{r.Effort},{r.Isolation},{r.EscalateTo},{r.Context},{r.Prompt}"),
-         .. s.Tools.Select(t => $"T:{t.Name},{t.Package},{t.Version},{string.Join(';', t.Args)}"),
-         .. s.Gates.Select(g => $"G:{g.Name},{g.Kind},{g.Tool}"),
-         .. s.Flow.Select(f => $"F:{f.Type},{f.Target}")]);
 
     static string Msg(Action a) => Assert.Throws<SwarmException>(a).Message;
 
@@ -47,7 +42,24 @@ public class BuilderTests
     {
         Assert.Equal(Shape(TestSamples.Parsed()), Shape(Sample()));
         Assert.Equal(Shape(Swarm.Formats.YamlFrontEnd.Parse(TestSamples.Yaml())), Shape(Sample()));
+        Assert.Contains("T:testgate,Swarm.TestGate,0.1.0,", Shape(Sample()));
+        Assert.Contains("G:batch-green,test,testgate", Shape(Sample()));
+        Assert.Contains("R:expert,Llm,opus,Solves what a worker could not, from a distilled hand-off.,Read;Edit;Grep;Glob;Bash,40,high,worktree,,distilled,", Shape(Sample()));
     }
+
+    [Fact] public void ThreeFrontEndsRenderIdenticalFiles()
+    {
+        var md = Swarm.Render.SwarmRenderer.Render(TestSamples.Parsed());
+        Assert.Equal(md, Swarm.Render.SwarmRenderer.Render(Swarm.Formats.YamlFrontEnd.Parse(TestSamples.Yaml())));
+        Assert.Equal(md, Swarm.Render.SwarmRenderer.Render(Sample()));
+    }
+
+    [Fact] public void NullToolArgument_IsRejected() =>
+        Assert.Equal("args of tool 't' must not contain null", Msg(() => Base().Tool("t", "P", "1.0.0", "a", null!)));
+
+    [Theory] [InlineData("forked")] [InlineData("shared")] [InlineData(" distilled ")]
+    public void UnsupportedContext_IsRejected(string context) =>
+        Assert.Equal($"unsupported context '{context}' in role 'w' (allowed: distilled)", Msg(() => Base().Llm("w", r => r.Context(context))));
 
     [Fact] public void Build_Twice_YieldsEqualIndependentResults()
     {

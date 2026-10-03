@@ -48,6 +48,23 @@ public class SharedRenderTypesTests
     [Fact] public void SafeStems_RejectsOverlongName() =>
         Assert.Throws<SwarmException>(() => SafeStems.Validate([new string('a', 65)], "swarm"));
 
+    [Theory]
+    [InlineData("<!-- swarm:generated -->\nbody", true)]
+    [InlineData("---\nname: x\n---\n<!-- swarm:generated -->\r\nbody\r\n", true)]
+    [InlineData("export const meta = {};\n// swarm:generated\n", true)]
+    [InlineData("my hand-written agent\n", false)]
+    [InlineData("", false)]
+    [InlineData("text mentioning <!-- swarm:generated --> inline\n", false)]
+    [InlineData("  // swarm:generated  x\n", false)]
+    public void GeneratedMarker_IsDetectedOnlyAsAWholeLine(string content, bool expected) =>
+        Assert.Equal(expected, GeneratedMarker.IsPresent(content));
+
+    [Fact] public void SwarmRenderer_ConcatenatesAgentFilesThenWorkflowFiles()
+    {
+        var d = TestSamples.Parsed();
+        Assert.Equal(AgentFileRenderer.Render(d).Concat(WorkflowRenderer.Render(d)), SwarmRenderer.Render(d));
+    }
+
     [Fact] public void SafeStems_RejectsCaseInsensitiveCollision() =>
         Assert.Contains("collides case-insensitively", Assert.Throws<SwarmException>(() => SafeStems.Validate(["Worker", "worker"], "role")).Message);
 }

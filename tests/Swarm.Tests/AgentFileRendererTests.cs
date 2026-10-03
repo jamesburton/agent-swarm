@@ -55,13 +55,13 @@ public class AgentFileRendererTests
     [Fact] public void RendersExpectedWorkerFile()
     {
         var text = AgentFileRenderer.Render(WithWorker())[".claude/agents/worker.md"];
-        Assert.Equal("---\nname: worker\ndescription: \"d\"\nmodel: haiku\ntools: Read\n---\np\n", text);
+        Assert.Equal("---\nname: worker\ndescription: \"d\"\nmodel: haiku\ntools: Read\n---\n<!-- swarm:generated -->\np\n", text);
     }
 
     [Fact] public void OptionalKeysAreEmittedAndToolsAreCommaJoined()
     {
         var s = Base().Llm("worker", r => r.Model("haiku").Description("d").Tools("Read", "Edit").MaxTurns(7).Effort("low").Isolation("worktree").Prompt("p")).Build();
-        Assert.Equal("---\nname: worker\ndescription: \"d\"\nmodel: haiku\ntools: Read, Edit\nmaxTurns: 7\neffort: low\nisolation: worktree\n---\np\n",
+        Assert.Equal("---\nname: worker\ndescription: \"d\"\nmodel: haiku\ntools: Read, Edit\nmaxTurns: 7\neffort: low\nisolation: worktree\n---\n<!-- swarm:generated -->\np\n",
             AgentFileRenderer.Render(s)[".claude/agents/worker.md"]);
     }
 
@@ -90,13 +90,14 @@ public class AgentFileRendererTests
         var lines = text.Split('\n');
         Assert.Equal("---", lines[0]);
         Assert.Equal(5, Array.IndexOf(lines, "---", 1));
-        Assert.Equal("before", lines[6]);
-        Assert.Equal("---", lines[7]);
-        Assert.Equal("after", lines[8]);
+        Assert.Equal("<!-- swarm:generated -->", lines[6]);
+        Assert.Equal("before", lines[7]);
+        Assert.Equal("---", lines[8]);
+        Assert.Equal("after", lines[9]);
     }
 
     [Fact] public void PromptCrLfIsNormalisedToLf() =>
-        Assert.Equal("---\nname: worker\ndescription: \"d\"\nmodel: haiku\ntools: Read\n---\na\nb\nc\n", Worker(prompt: "a\r\nb\rc"));
+        Assert.Equal("---\nname: worker\ndescription: \"d\"\nmodel: haiku\ntools: Read\n---\n<!-- swarm:generated -->\na\nb\nc\n", Worker(prompt: "a\r\nb\rc"));
 
     // Hand-built definition: bypasses the builder/validator, as a caller constructing the record directly could.
     static SwarmDefinition Mutated(Func<Role, Role> change)
@@ -191,7 +192,7 @@ public class AgentFileRendererTests
     [Fact] public void PromptTabAndLineSeparatorsAreAllowed()
     {
         var text = Worker(prompt: "a\n\tindented\u2028b\u2029c");
-        Assert.EndsWith("---\na\n\tindented\u2028b\u2029c\n", text);
+        Assert.EndsWith("---\n<!-- swarm:generated -->\na\n\tindented\u2028b\u2029c\n", text);
     }
 
     [Fact] public void DescriptionTabIsEscaped() =>
@@ -219,10 +220,46 @@ public class AgentFileRendererTests
 
     [Fact] public void RoleNamesDifferingOnlyByCaseAreRejected()
     {
-        var s = Base().Llm("Worker", r => r.Model("haiku").Description("d").Tools("Read").Prompt("p"))
-            .Llm("worker", r => r.Model("haiku").Description("d").Tools("Read").Prompt("p")).Build();
+        // Validation rejects this too; the renderer keeps its own check for hand-built definitions.
+        var s = WithWorker();
+        s = s with { Roles = [.. s.Roles, s.Roles.Single(r => r.Name == "worker") with { Name = "Worker" }] };
         Assert.Contains("case-insensitively", Msg(() => AgentFileRenderer.Render(s)));
     }
+
+    public static TheoryData<string, string> FormatCharacters() => new()
+    {
+        { "\u200B", "U+200B" }, { "\u200C", "U+200C" }, { "\u200D", "U+200D" }, { "\u2060", "U+2060" }, { "\uFEFF", "U+FEFF" },
+        { "\u202A", "U+202A" }, { "\u202E", "U+202E" }, { "\u2066", "U+2066" }, { "\u2069", "U+2069" }, { "\u00AD", "U+00AD" },
+        { char.ConvertFromUtf32(0xE0001), "U+E0001" }, { char.ConvertFromUtf32(0xE0041), "U+E0041" }, { char.ConvertFromUtf32(0xE007F), "U+E007F" },
+    };
+
+    [Theory]
+    [MemberData(nameof(FormatCharacters))]
+    public void InvisibleFormatCharactersAreRejectedInPromptAndDescription(string c, string code)
+    {
+        Assert.Equal($"role 'worker': prompt contains an invisible Unicode format character ({code})", Msg(() => Worker(prompt: "a" + c + "b")));
+        Assert.Equal($"role 'worker': description contains an invisible Unicode format character ({code})", Msg(() => Worker("a" + c + "b")));
+    }
+
+    [Fact] public void VisibleNonAsciiTextIsKept()
+    {
+        var text = Worker("caf\u00e9 \u4e2d", "na\u00efve " + char.ConvertFromUtf32(0x1F600));
+        Assert.Contains("caf\u00e9 \u4e2d", text);
+        Assert.Contains("na\u00efve " + char.ConvertFromUtf32(0x1F600), text);
+    }
+
+    [Fact] public void EveryAgentFileCarriesTheMarkerAsFirstBodyLine()
+    {
+        foreach (var (_, text) in AgentFileRenderer.Render(Sample()))
+        {
+            var lines = text.Split('\n');
+            Assert.Equal(GeneratedMarker.MarkdownLine, lines[Array.IndexOf(lines, "---", 1) + 1]);
+            Assert.True(GeneratedMarker.IsPresent(text));
+        }
+    }
+
+    [Fact] public void ExpertAgentFileHasWorktreeIsolation() =>
+        Assert.Contains("\nisolation: worktree\n", AgentFileRenderer.Render(Sample())[".claude/agents/expert.md"]);
 
     [Fact] public void OutputIsDeterministicAndInDeclarationOrder()
     {

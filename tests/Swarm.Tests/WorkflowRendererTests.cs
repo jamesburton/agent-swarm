@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Text;
 using System.Text.Json;
 using Swarm.Core;
 using Swarm.Render;
@@ -124,14 +122,15 @@ public class WorkflowRendererTests
     [Fact] public void RunbookIsOrderedPinnedLfAndHasNoYes()
     {
         var md = Steps();
-        Assert.Equal("Run these in order. Deterministic steps run in the main session or CI; each workflow is launched with the Workflow tool and the arguments shown.", md.Split('\n')[0]);
+        Assert.Equal(GeneratedMarker.MarkdownLine, md.Split('\n')[0]);
+        Assert.Equal("Run these in order. Deterministic steps run in the main session or CI; each workflow is launched with the Workflow tool and the arguments shown.", md.Split('\n')[1]);
         Assert.Contains("dnx Swarm.Squash@0.1.0", md);
         Assert.DoesNotContain("--yes", md);
         Assert.DoesNotContain('\r', md);
         Assert.Contains("dnx.cmd", md);
         Assert.Contains(".docs/runs/gates/batch-green.json", md);
         Assert.Contains("{\"green\": true|false, \"summary\": \"...\"}", md);
-        var order = new[] { "Run workflow `epic-delivery.1` (file `.claude/workflows/epic-delivery.1.js`; pass scriptPath if lookup by name is unavailable) with args: ", "Gate \"batch-green\" (kind test): run dnx Swarm.Squash@0.1.0 and write", "Run workflow `epic-delivery.2` (file", "Run: dnx Swarm.Squash@0.1.0" }
+        var order = new[] { "Run workflow `epic-delivery.1` (file `.claude/workflows/epic-delivery.1.js`; pass scriptPath if lookup by name is unavailable) with args: ", "Gate \"batch-green\" (kind test): run dnx Swarm.TestGate@0.1.0 and write", "Run workflow `epic-delivery.2` (file", "Run: dnx Swarm.Squash@0.1.0" }
             .Select(x => md.IndexOf(x, StringComparison.Ordinal)).ToArray();
         Assert.All(order, i => Assert.True(i >= 0));
         Assert.Equal(order.OrderBy(i => i), order);
@@ -142,16 +141,14 @@ public class WorkflowRendererTests
 
     [Fact] public void ToolArgsAppearInRunbook()
     {
-        var s = Sample() with { Tools = [new ToolDef("squash", "Swarm.Squash", "0.1.0", ["--base", "origin/main", "--dry-run=true"])] };
-        Assert.Contains("Run: dnx Swarm.Squash@0.1.0 -- --base origin/main --dry-run=true", Steps(s));
+        Assert.Contains("Run: dnx Swarm.Squash@0.1.0 -- --base origin/main --dry-run=true", Steps(WithToolArgs("--base", "origin/main", "--dry-run=true")));
     }
 
     [Theory]
     [InlineData("two words")] [InlineData("a\nb")] [InlineData("$(x)")] [InlineData("a;b")] [InlineData("")] [InlineData("a\"b")]
     public void UnsafeToolArgsAreRejected(string arg)
     {
-        var s = Sample() with { Tools = [new ToolDef("squash", "Swarm.Squash", "0.1.0", [arg])] };
-        Assert.Contains("unsafe", Msg(() => WorkflowRenderer.Render(s)));
+        Assert.Contains("unsafe", Msg(() => WorkflowRenderer.Render(WithToolArgs(arg))));
     }
 
     [Fact] public void GateWithoutToolIsDescribedWithoutCommand()
@@ -216,86 +213,33 @@ public class WorkflowRendererTests
         if (NodeAvailable()) AssertNodeCheck(js);
     }
 
-    static bool NodeAvailable() => FindNode() is not null;
+    static bool NodeAvailable() => NodeScripts.Required();
 
-    static string? FindNode() =>
-        (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-        .SelectMany(p => new[] { Path.Combine(p, "node.exe"), Path.Combine(p, "node") })
-        .FirstOrDefault(File.Exists);
+    static void AssertNodeCheck(string js) => NodeScripts.AssertNodeCheck(js);
 
-    static (int Exit, string Out, string Err) RunNode(params string[] args)
+    static (List<(string AgentType, string Prompt, JsonElement Opts)> Calls, JsonElement Result) RunScript(string js, string argsJson, string mode = "ok") =>
+        NodeScripts.RunScript(js, argsJson, mode);
+
+    [Fact] public void NodeHelperFailsLoudlyWhenNodeIsMissing()
     {
-        var psi = new ProcessStartInfo(FindNode()!) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
-        foreach (var a in args) psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        var o = p.StandardOutput.ReadToEndAsync(); var e = p.StandardError.ReadToEndAsync();
-        Assert.True(p.WaitForExit(60_000), "node timed out");
-        return (p.ExitCode, o.Result, e.Result);
+        // An empty PATH has no node: without the opt-out the helper must fail, not pass vacuously.
+        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => NodeScripts.Required("", null));
+        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => NodeScripts.Required("", "0"));
+        Assert.False(NodeScripts.Required("", "1"));
     }
 
-    static string TempFile(string ext, string content)
+    [Fact] public void NodeCheckRejectsBrokenScript()
     {
-        var f = Path.Combine(Path.GetTempPath(), $"swarm-{Guid.NewGuid():N}{ext}");
-        File.WriteAllText(f, content, new UTF8Encoding(false));
-        return f;
+        if (!NodeAvailable()) return;
+        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertNodeCheck("export const meta = { name: \"x\" };\nreturn { halted: ;\n"));
+        Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => AssertNodeCheck("export const meta = { name: ;\nreturn {};\n"));
     }
-
-    static void AssertNodeCheck(string js)
-    {
-        var nl = js.IndexOf('\n');
-        foreach (var part in new[] { js[..nl] + "\n", "async function __body() {\n" + js[(nl + 1)..] + "\n}\n" })
-        {
-            var f = TempFile(".mjs", part);
-            try
-            {
-                var (exit, _, err) = RunNode("--check", f);
-                Assert.True(exit == 0, err);
-            }
-            finally { File.Delete(f); }
-        }
-    }
-
-    [Fact] public void NodeIsAvailableOnThisMachine() => Assert.True(NodeAvailable(), "node not found on PATH; node-based tests were skipped");
 
     [Fact] public void EveryGeneratedScriptPassesNodeSyntaxCheck()
     {
         if (!NodeAvailable()) return;
         foreach (var js in AllScripts()) AssertNodeCheck(js);
         foreach (var js in AllScripts(WithFlow(new Stage(StageType.Gate, "batch-green"), new Stage(StageType.Fanout, "worker"), new Stage(StageType.Role, "reviewer")))) AssertNodeCheck(js);
-    }
-
-    // Runs a generated script under node with stub workflow hooks; the script's final log line is its JSON result.
-    const string Harness = """
-        import fs from 'node:fs';
-        const [, , file, argsJson, mode] = process.argv;
-        const src = fs.readFileSync(file, 'utf8').replace('export const meta =', 'const meta =');
-        const calls = [], logs = [];
-        const agent = async (prompt, opts) => {
-          calls.push({ prompt, agentType: opts.agentType });
-          if (mode === 'allblocked' && opts.schema) return { status: 'blocked', branch: 'b', notes: 'still stuck' };
-          if (mode === 'blocked' && opts.agentType === 'worker') return { status: 'blocked', branch: 'b', notes: 'stuck' };
-          if (mode === 'failed') return null;
-          if (!opts.schema) return 'LGTM from ' + opts.agentType;
-          return { status: 'done', branch: 'br-' + calls.length, notes: '' };
-        };
-        const pipeline = async (items, ...stages) => Promise.all(items.map(async (it, i) => { let r = it; for (const s of stages) r = await s(r, it, i); return r; }));
-        const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-        const result = await new AsyncFunction('agent', 'pipeline', 'parallel', 'phase', 'log', 'args', src)(agent, pipeline, async t => Promise.all(t.map(f => f())), () => {}, m => logs.push(String(m)), JSON.parse(argsJson));
-        console.log(JSON.stringify({ calls, logs, result }));
-        """;
-
-    static (List<(string AgentType, string Prompt)> Calls, JsonElement Result) RunScript(string js, string argsJson, string mode = "ok")
-    {
-        var h = TempFile(".mjs", Harness); var f = TempFile(".mjs", js);
-        try
-        {
-            var (exit, o, e) = RunNode(h, f, argsJson, mode);
-            Assert.True(exit == 0, e);
-            var root = JsonDocument.Parse(o).RootElement;
-            var calls = root.GetProperty("calls").EnumerateArray().Select(c => (c.GetProperty("agentType").GetString()!, c.GetProperty("prompt").GetString()!)).ToList();
-            return (calls, root.GetProperty("result").Clone());
-        }
-        finally { File.Delete(h); File.Delete(f); }
     }
 
     [Fact] public void Segment2HaltsWithoutAgentCallsWhenGateEvidenceIsMissing()
@@ -351,8 +295,11 @@ public class WorkflowRendererTests
     static SwarmDefinition WithGateThenTool() =>
         Sample() with { Gates = [new Gate("g", "test", "squash")], Flow = [new Stage(StageType.Fanout, "worker"), new Stage(StageType.Gate, "g"), new Stage(StageType.Tool, "squash")] };
 
-    static SwarmDefinition WithToolArgs(params string[] args) =>
-        Sample() with { Tools = [new ToolDef("squash", "Swarm.Squash", "0.1.0", args)] };
+    // The sample with one tool edited (the other tools are kept, so the gate's tool still exists).
+    static SwarmDefinition WithTool(string name, Func<ToolDef, ToolDef> edit) =>
+        Sample() with { Tools = [.. Sample().Tools.Select(t => t.Name == name ? edit(t) : t)] };
+
+    static SwarmDefinition WithToolArgs(params string[] args) => WithTool("squash", t => t with { Args = args });
 
     [Fact] public void ScriptsReturnAtTopLevelWithoutMainWrapper()
     {
@@ -382,8 +329,8 @@ public class WorkflowRendererTests
             Assert.Contains("do not run later steps", l);
         });
         Assert.Contains("`.docs/runs/epic-delivery.1.result.json`", steps[0]);
-        Assert.Contains("A rejecting review is visible in `reviews`.", steps[1]);
-        Assert.DoesNotContain("reviews", steps[0]);
+        Assert.Contains(" A reject verdict from a review stage also halts the workflow, so this STOP rule covers it.", steps[1]);
+        Assert.DoesNotContain("reject", steps[0]);
         Assert.Contains("pass the `state` field of the previous workflow's result as the next workflow's `args.state`", Steps());
     }
 
@@ -412,21 +359,21 @@ public class WorkflowRendererTests
 
     [Fact] public void GateStepPrintsTheToolsPinnedCommandViaTheSameBuilder()
     {
-        var md = Steps(Sample() with { Tools = [new ToolDef("squash", "Swarm.Squash", "0.1.0", ["--slots", "2"])] });
-        Assert.Contains("Gate \"batch-green\" (kind test): run dnx Swarm.Squash@0.1.0 -- --slots 2 and write", md);
+        var md = Steps(WithTool("testgate", t => t with { Args = ["--slots", "2"] }));
+        Assert.Contains("Gate \"batch-green\" (kind test): run dnx Swarm.TestGate@0.1.0 -- --slots 2 and write", md);
     }
 
     [Fact] public void GateWithMissingToolIsRejectedWithOneLine() =>
         Assert.Equal("gate 'batch-green': tool 'nope' does not exist", Msg(() => WorkflowRenderer.Render(Sample() with { Gates = [new Gate("batch-green", "test", "nope")] })));
 
     [Fact] public void UnpinnedToolVersionIsRejected() =>
-        Assert.Contains("not an exact pinned version", Msg(() => WorkflowRenderer.Render(Sample() with { Tools = [new ToolDef("squash", "Swarm.Squash", "latest", [])] })));
+        Assert.Contains("not an exact pinned version", Msg(() => WorkflowRenderer.Render(WithTool("squash", t => t with { Version = "latest" }))));
 
     [Fact] public void HostileGateAndToolNamesAndPackagesAreRejected()
     {
         Assert.Contains("not a safe file name", Msg(() => WorkflowRenderer.Render(Sample() with { Gates = [new Gate("a b\n$(x)", "test", "squash")], Flow = [new Stage(StageType.Fanout, "worker"), new Stage(StageType.Gate, "a b\n$(x)")] })));
-        Assert.Contains("unsafe", Msg(() => WorkflowRenderer.Render(Sample() with { Tools = [new ToolDef("squash", "Swarm.Squash; rm -rf /", "0.1.0", [])] })));
-        Assert.Contains("unsafe", Msg(() => WorkflowRenderer.Render(Sample() with { Gates = [new Gate("batch-green", "te st", "squash")] })));
+        Assert.Contains("unsafe", Msg(() => WorkflowRenderer.Render(WithTool("squash", t => t with { Package = "Swarm.Squash; rm -rf /" }))));
+        Assert.Contains("unsafe", Msg(() => WorkflowRenderer.Render(Sample() with { Gates = [new Gate("batch-green", "te st", "testgate")] })));
     }
 
     [Fact] public void MissingGateEvidenceReturnsHaltedResultWithPendingStateAndNoAgentCalls()
@@ -450,7 +397,7 @@ public class WorkflowRendererTests
     {
         if (!NodeAvailable()) return;
         var (_, r) = RunScript(Js(2), """{ "state": [ { "status": "done", "branch": "b1" } ], "gates": { "batch-green": { "green": true, "summary": "ok" } } }""");
-        Assert.Equal("""{"halted":false,"state":[{"status":"done","branch":"b1"}],"unresolved":[],"pending":[],"reviews":[{"role":"reviewer","output":"LGTM from reviewer"}]}""", r.GetRawText());
+        Assert.Equal("""{"halted":false,"state":[{"status":"done","branch":"b1"}],"unresolved":[],"pending":[],"reviews":[{"role":"reviewer","verdict":"approve","notes":"LGTM from reviewer"}]}""", r.GetRawText());
     }
 
     [Fact] public void WorkerAndExpertBothBlockedHaltsWithTaskOnUnresolved()
@@ -509,5 +456,124 @@ public class WorkflowRendererTests
         Assert.True(r.GetProperty("halted").GetBoolean());
         Assert.Equal(0, r.GetProperty("state").GetArrayLength());
         Assert.Equal(2, r.GetProperty("unresolved").GetArrayLength());
+    }
+
+    // ---- final-review contract: status enum, verdicts, agent options, markers ----
+
+    static string[] Strings(JsonElement e) => [.. e.EnumerateArray().Select(x => x.GetString()!)];
+
+    [Fact] public void ResultSchemaRestrictsStatusAndCarriesBase()
+    {
+        var js = Js(1);
+        Assert.Contains("status: { type: 'string', enum: ['done', 'blocked', 'failed'] }", js);
+        Assert.Contains("base: { type: 'string' }", js);
+        Assert.DoesNotContain("const VERDICT", js);
+    }
+
+    [Fact] public void FanoutPromptsExplainEveryStatusValueUnderNode()
+    {
+        if (!NodeAvailable()) return;
+        var (calls, _) = RunScript(Js(1), """{ "tasks": [ "t1" ] }""", "blocked");
+        Assert.Equal(new[] { "worker", "expert" }, calls.Select(c => c.AgentType));
+        foreach (var (_, prompt, opts) in calls)
+        {
+            Assert.Equal(new[] { "done", "blocked", "failed" }, Strings(opts.GetProperty("schema").GetProperty("properties").GetProperty("status").GetProperty("enum")));
+            Assert.Contains("status 'done' (the task is finished and committed on your branch)", prompt);
+            Assert.Contains("'blocked' (you cannot finish it; a stronger agent may continue from your notes)", prompt);
+            Assert.Contains("'failed' (it cannot be done as specified)", prompt);
+            Assert.Contains("the base it starts from", prompt);
+        }
+    }
+
+    [Fact] public void AgentOptionsCarryEffortAndIsolationUnderNode()
+    {
+        if (!NodeAvailable()) return;
+        var (calls, _) = RunScript(Js(1), """{ "tasks": [ "t1" ] }""", "blocked");
+        var worker = calls[0].Opts;
+        Assert.Equal("low", worker.GetProperty("effort").GetString());
+        Assert.Equal("worktree", worker.GetProperty("isolation").GetString());
+        Assert.Equal("haiku", worker.GetProperty("model").GetString());
+        var expert = calls[1].Opts;
+        Assert.Equal("high", expert.GetProperty("effort").GetString());
+        Assert.Equal("worktree", expert.GetProperty("isolation").GetString());
+
+        (calls, _) = RunScript(Js(2), """{ "state": [ { "status": "done", "branch": "b1", "base": "main" } ], "gates": { "batch-green": { "green": true, "summary": "ok" } } }""");
+        var reviewer = Assert.Single(calls).Opts;
+        Assert.Equal("medium", reviewer.GetProperty("effort").GetString());
+        Assert.False(reviewer.TryGetProperty("isolation", out _));
+    }
+
+    [Fact] public void AgentOptionsOmitUnsetEffortAndIsolation()
+    {
+        var s = Sample();
+        s = s with { Roles = [.. s.Roles.Select(r => r.Name == "worker" ? r with { Effort = null, Isolation = null } : r)] };
+        Assert.Contains("{ agentType: \"worker\", model: \"haiku\", phase: \"worker\", schema: RESULT }", Js(1, s));
+        Assert.Contains("{ agentType: \"expert\", model: \"opus\", phase: \"expert\", effort: \"high\", isolation: \"worktree\", schema: RESULT }", Js(1, s));
+    }
+
+    [Fact] public void ReviewerUsesVerdictSchemaAndIsToldTheBase()
+    {
+        var js = Js(2);
+        Assert.Contains("const VERDICT = { type: 'object', properties: { verdict: { type: 'string', enum: ['approve', 'reject'] }, notes: { type: 'string' } }, required: ['verdict', 'notes'] };", js);
+        Assert.Contains("{ agentType: \"reviewer\", model: \"sonnet\", phase: \"reviewer\", effort: \"medium\", schema: VERDICT }", js);
+        Assert.Contains("its diff against that task's reported base", js);
+        Assert.Contains("verdict 'approve'", js);
+        Assert.Contains("'reject'", js);
+        Assert.DoesNotContain("const RESULT", js);
+    }
+
+    [Fact] public void ReviewerApproveContinuesUnderNode()
+    {
+        if (!NodeAvailable()) return;
+        var (calls, r) = RunScript(Js(2), """{ "state": [ { "status": "done", "branch": "b1" } ], "gates": { "batch-green": { "green": true, "summary": "ok" } } }""");
+        Assert.Equal(new[] { "approve", "reject" }, Strings(Assert.Single(calls).Opts.GetProperty("schema").GetProperty("properties").GetProperty("verdict").GetProperty("enum")));
+        Assert.False(r.GetProperty("halted").GetBoolean());
+        var review = Assert.Single(r.GetProperty("reviews").EnumerateArray());
+        Assert.Equal("approve", review.GetProperty("verdict").GetString());
+    }
+
+    [Fact] public void ReviewerRejectHaltsWithStateMovedToPendingUnderNode()
+    {
+        if (!NodeAvailable()) return;
+        var (calls, r) = RunScript(Js(2), """{ "state": [ { "status": "done", "branch": "b1" } ], "gates": { "batch-green": { "green": true, "summary": "ok" } } }""", "reject");
+        Assert.Single(calls);
+        Assert.Equal("""{"halted":true,"state":[],"unresolved":[],"pending":[{"status":"done","branch":"b1"}],"reviews":[{"role":"reviewer","verdict":"reject","notes":"blocking: tests missing"}],"reason":"reviewer rejected the work: blocking: tests missing"}""", r.GetRawText());
+    }
+
+    [Fact] public void MissingVerdictCountsAsRejectUnderNode()
+    {
+        if (!NodeAvailable()) return;
+        var (_, r) = RunScript(Js(2), """{ "state": [ { "status": "done", "branch": "b1" } ], "gates": { "batch-green": { "green": true, "summary": "ok" } } }""", "failed");
+        Assert.True(r.GetProperty("halted").GetBoolean());
+        var review = Assert.Single(r.GetProperty("reviews").EnumerateArray());
+        Assert.Equal("reject", review.GetProperty("verdict").GetString());
+        Assert.Equal("agent returned no verdict", review.GetProperty("notes").GetString());
+        Assert.Equal("reviewer rejected the work: agent returned no verdict", r.GetProperty("reason").GetString());
+    }
+
+    [Fact] public void RejectAfterFanoutInTheSameSegmentPendsTheFinishedWorkUnderNode()
+    {
+        var s = WithFlow(new Stage(StageType.Fanout, "worker"), new Stage(StageType.Role, "reviewer"));
+        if (!NodeAvailable()) return;
+        var (calls, r) = RunScript(Js(1, s), """{ "tasks": [ "t1" ] }""", "reject");
+        Assert.Equal(new[] { "worker", "reviewer" }, calls.Select(c => c.AgentType));
+        Assert.True(r.GetProperty("halted").GetBoolean());
+        var pending = Assert.Single(r.GetProperty("pending").EnumerateArray());
+        Assert.Equal("done", pending.GetProperty("status").GetString());
+    }
+
+    [Fact] public void EveryGeneratedFileCarriesItsMarker()
+    {
+        foreach (var (key, text) in Files())
+        {
+            Assert.True(GeneratedMarker.IsPresent(text), key);
+            var lines = text.Split('\n');
+            if (key.EndsWith(".js"))
+            {
+                Assert.StartsWith("export const meta = ", lines[0]);
+                Assert.Equal(GeneratedMarker.ScriptLine, lines[1]);
+            }
+            else Assert.Equal(GeneratedMarker.MarkdownLine, lines[0]);
+        }
     }
 }

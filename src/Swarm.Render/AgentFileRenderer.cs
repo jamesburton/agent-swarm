@@ -18,7 +18,7 @@ public static partial class AgentFileRenderer
     /// <summary>Renders one agent file per LLM role (the code orchestrator is excluded).</summary>
     /// <param name="s">The swarm definition.</param>
     /// <returns>Relative path (<c>.claude/agents/&lt;role&gt;.md</c>) to file content, enumerated in role declaration order.</returns>
-    /// <exception cref="SwarmException">Thrown when a role name is not a safe file stem, two names collide case-insensitively, or a field holds disallowed control characters.</exception>
+    /// <exception cref="SwarmException">Thrown when a role name is not a safe file stem, two names collide case-insensitively, a field holds disallowed control characters, or the description or prompt holds an invisible Unicode format character.</exception>
     public static IReadOnlyDictionary<string, string> Render(SwarmDefinition s)
     {
         var roles = s.Roles.Where(r => r.Kind == RoleKind.Llm).ToList();
@@ -46,6 +46,7 @@ public static partial class AgentFileRenderer
         if (r.Effort is { } e) sb.Append("effort: ").Append(Plain(e, SafeValue(), r.Name, "effort")).Append('\n');
         if (r.Isolation is { } i) sb.Append("isolation: ").Append(Plain(i, SafeValue(), r.Name, "isolation")).Append('\n');
         sb.Append("---\n");
+        sb.Append(GeneratedMarker.MarkdownLine).Append('\n');
 
         sb.Append(Prompt(r.Prompt, r.Name).TrimEnd('\n')).Append('\n');
         if (r.Context == "distilled") sb.Append(DistilledNote).Append('\n');
@@ -56,12 +57,19 @@ public static partial class AgentFileRenderer
     static string Plain(string value, Regex safe, string role, string field) =>
         safe.IsMatch(value) ? value : throw new SwarmException($"role '{Show(role)}': field '{field}' has an unsafe value '{Show(value)}'");
 
-    // Renders a value for an error message on one line (control and line-separator characters replaced).
-    static string Show(string value) => SafeStems.Show(value);
+    static string Show(string value) => SafeText.Show(value);
+
+    // Invisible format characters (bidi overrides, zero-width and tag characters) can hide instructions from a human reviewer.
+    static void RejectInvisible(string value, string role, string field)
+    {
+        if (SafeText.FindFormatCharacter(value) is { } code)
+            throw new SwarmException($"role '{Show(role)}': {field} contains an invisible Unicode format character ({code})");
+    }
 
     // Always double-quoted; backslash, quote and common whitespace controls are escaped, other controls rejected.
     static string Quote(string value, string role)
     {
+        RejectInvisible(value, role, "description");
         var sb = new StringBuilder("\"");
         foreach (var c in value)
         {
@@ -73,7 +81,7 @@ public static partial class AgentFileRenderer
                 case '\r': sb.Append("\\r"); break;
                 case '\t': sb.Append("\\t"); break;
                 default:
-                    if (SafeStems.IsUnsafeChar(c)) throw new SwarmException($"role '{role}': description contains a control character");
+                    if (SafeText.IsUnsafeChar(c)) throw new SwarmException($"role '{Show(role)}': description contains a control character");
                     sb.Append(c);
                     break;
             }
@@ -85,9 +93,10 @@ public static partial class AgentFileRenderer
     // Normalises line endings to LF; tab is allowed, other control characters are rejected.
     static string Prompt(string value, string role)
     {
+        RejectInvisible(value, role, "prompt");
         var text = value.Replace("\r\n", "\n").Replace('\r', '\n');
         if (text.Any(c => char.IsControl(c) && c != '\n' && c != '\t'))
-            throw new SwarmException($"role '{role}': prompt contains a control character");
+            throw new SwarmException($"role '{Show(role)}': prompt contains a control character");
         return text;
     }
 }

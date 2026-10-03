@@ -3,7 +3,7 @@ using Swarm.Core;
 
 namespace Swarm.Render;
 
-/// <summary>Validation of names that become file-name stems, and one-line rendering of untrusted values for messages.</summary>
+/// <summary>Validation of names that become file-name stems.</summary>
 internal static partial class SafeStems
 {
     static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
@@ -27,19 +27,9 @@ internal static partial class SafeStems
         foreach (var name in names)
         {
             if (!SafeStem().IsMatch(name) || ReservedDeviceNames.Contains(name))
-                throw new SwarmException($"{kind} '{Show(name)}': name is not a safe file name (1-64 letters, digits, '_' or '-'; not a reserved device name)");
+                throw new SwarmException($"{kind} '{SafeText.Show(name)}': name is not a safe file name (1-64 letters, digits, '_' or '-'; not a reserved device name)");
             if (!seen.Add(name))
-                throw new SwarmException($"{kind} '{Show(name)}': name collides case-insensitively with another {kind}");
+                throw new SwarmException($"{kind} '{SafeText.Show(name)}': name collides case-insensitively with another {kind}");
         }
     }
-
-    /// <summary>Renders a value for an error message on one line (control and line-separator characters replaced).</summary>
-    /// <param name="value">The value.</param>
-    /// <returns>The single-line text.</returns>
-    public static string Show(string value) => new(value.Select(c => IsUnsafeChar(c) ? '?' : c).ToArray());
-
-    /// <summary>True for control characters and the Unicode line separators.</summary>
-    /// <param name="c">The character.</param>
-    /// <returns>Whether it is unsafe in a one-line context.</returns>
-    public static bool IsUnsafeChar(char c) => char.IsControl(c) || c is '\u2028' or '\u2029';
 }

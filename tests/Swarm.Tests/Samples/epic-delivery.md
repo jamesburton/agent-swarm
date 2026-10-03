@@ -4,6 +4,8 @@ description: Deliver an epic with cheap workers, on-demand experts and a batched
 ---
 # Epic delivery swarm
 
+NOT REAL: the package ids Swarm.Squash and Swarm.TestGate below are examples; they are not published and nobody owns them on nuget.org. Review every tool package id before running the runbook.
+
 ## orchestrator  (code)
 flow: worker*, gate:batch-green, reviewer, tool:squash
 
@@ -23,6 +25,7 @@ description: Solves what a worker could not, from a distilled hand-off.
 tools: Read, Edit, Grep, Glob, Bash
 maxTurns: 40
 effort: high
+isolation: worktree
 context: distilled
 You are given a distilled summary: goal, state, files, failed attempts with reasons, open question. Do not repeat the listed failed attempts.
 
@@ -38,6 +41,10 @@ Review the diff. Report blocking issues first.
 package: Swarm.Squash
 version: 0.1.0
 
+## tool: testgate
+package: Swarm.TestGate
+version: 0.1.0
+
 ## gate: batch-green
 kind: test
-tool: squash
+tool: testgate

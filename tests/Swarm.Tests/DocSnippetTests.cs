@@ -1,19 +1,13 @@
 using System.Runtime.CompilerServices;
 using Swarm.Core;
 using Swarm.Render;
+using static TestSamples;
 
 /// <summary>Keeps the C# builder snippet in docs/definition-format.md compiling, equal to the sample and identical to the doc text.</summary>
 public class DocSnippetTests
 {
     const string Begin = "// snippet begin";
     const string End = "// snippet end";
-
-    static string Shape(SwarmDefinition s) => string.Join("|",
-        [s.Name, s.Description,
-         .. s.Roles.Select(r => $"R:{r.Name},{r.Kind},{r.Model},{r.Description},{string.Join(';', r.Tools)},{r.MaxTurns},{r.Effort},{r.Isolation},{r.EscalateTo},{r.Context},{r.Prompt}"),
-         .. s.Tools.Select(t => $"T:{t.Name},{t.Package},{t.Version},{string.Join(';', t.Args)}"),
-         .. s.Gates.Select(g => $"G:{g.Name},{g.Kind},{g.Tool}"),
-         .. s.Flow.Select(f => $"F:{f.Type},{f.Target}")]);
 
     [Fact]
     public void DocSnippetBuildsSampleEquivalent()
@@ -31,7 +25,7 @@ public class DocSnippetTests
                 .Model("opus")
                 .Description("Solves what a worker could not, from a distilled hand-off.")
                 .Tools("Read", "Edit", "Grep", "Glob", "Bash")
-                .MaxTurns(40).Effort("high").Context("distilled")
+                .MaxTurns(40).Effort("high").Isolation("worktree").Context("distilled")
                 .Prompt("You are given a distilled summary: goal, state, files, failed attempts with reasons, open question. Do not repeat the listed failed attempts."))
             .Llm("reviewer", r => r
                 .Model("sonnet")
@@ -39,12 +33,14 @@ public class DocSnippetTests
                 .Tools("Read", "Grep", "Glob")
                 .MaxTurns(15).Effort("medium")
                 .Prompt("Review the diff. Report blocking issues first."))
+            // NOT REAL: Swarm.Squash and Swarm.TestGate are example package ids; review every package id before running the runbook.
             .Tool("squash", "Swarm.Squash", "0.1.0")
-            .Gate("batch-green", "test", "squash")
+            .Tool("testgate", "Swarm.TestGate", "0.1.0")
+            .Gate("batch-green", "test", "testgate")
             .Build();
 
-        // Relative path (under the output directory) to file content, as `swarm render` writes them.
-        var files = AgentFileRenderer.Render(swarm).Concat(WorkflowRenderer.Render(swarm)).ToList();
+        // Relative path (under the output directory) to file content, exactly as `swarm render` writes them.
+        var files = SwarmRenderer.Render(swarm);
         // snippet end
 
         Assert.Equal(Shape(TestSamples.Parsed()), Shape(swarm));
@@ -70,6 +66,19 @@ public class DocSnippetTests
         var fromTest = src[(b + 1)..e].Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
 
         Assert.Equal(fromTest, fromDoc);
+    }
+
+    // The "real output" blocks in the document must be exactly what the renderer produces for the sample (no hand edits, no drift).
+    [Fact]
+    public void DocShowsTheSampleAndEveryGeneratedFileVerbatim()
+    {
+        var doc = File.ReadAllText(FindUp("docs/definition-format.md")!).ReplaceLineEndings("\n");
+        static string Block(string text) => "\n" + text.ReplaceLineEndings("\n").TrimEnd('\n') + "\n```\n";
+        Assert.True(doc.Contains(Block(TestSamples.Markdown()), StringComparison.Ordinal), "the Markdown sample is not shown verbatim");
+        foreach (var (key, text) in SwarmRenderer.Render(TestSamples.Parsed()))
+            Assert.True(doc.Contains(Block(text), StringComparison.Ordinal), $"{key} is not shown verbatim");
+        var printed = string.Join("\n", SwarmRenderer.Render(TestSamples.Parsed()).Select(f => "wrote " + f.Key));
+        Assert.Contains("```text\n" + printed + "\nNote: generated agent files", doc);
     }
 
     static string SourcePath([CallerFilePath] string path = "") => path;

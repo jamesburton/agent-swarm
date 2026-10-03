@@ -6,7 +6,7 @@ status: current
 
 # dnx invocation notes
 
-How to run the `swarm` tool through `dnx` (.NET 10 SDK 10.0.401, Windows 11). Every row was run against a real `dotnet pack` package served from a local folder feed, with stdin closed and no prompt ever appearing. `FEED` below stands for the folder holding `Swarm.Cli.0.1.0.nupkg`; `PKG` for the package id (currently the placeholder `Swarm.Cli`). Git Bash needs `dnx.cmd`; PowerShell resolves plain `dnx` to the same `dnx.cmd`.
+How to run the `swarm` tool through `dnx` (.NET 10 SDK 10.0.401, Windows 11). Every row was run in Git Bash (`dnx.cmd`, stdin closed; rows 1 to 4 and 7 were also run identically in PowerShell) against a real `dotnet pack` package served from a local folder feed, with stdin closed and no prompt ever appearing. `FEED` below stands for the folder holding `Swarm.Cli.0.1.0.nupkg`; `PKG` for the package id (currently the placeholder `Swarm.Cli`). Git Bash needs `dnx.cmd`; PowerShell resolves plain `dnx` to the same `dnx.cmd`.
 
 Pack the feed: `cd src/Swarm.Cli && dotnet pack -c Release -o FEED`.
 
@@ -25,19 +25,27 @@ dnx Swarm.Cli@0.1.0 --add-source FEED -- validate path/to/definition.md
 
 ## Verified facts
 
-| # | Fact | Command | Status |
-|---|------|---------|--------|
-| 1 | `--add-source` with a local folder feed resolves the package, with the `@version` form or `--version` | `dnx Swarm.Cli@0.1.0 --add-source FEED -- validate f.md`; `dnx Swarm.Cli --version 0.1.0 --add-source FEED -- validate f.md` (exit 0, stdout `ok`) | verified |
-| 2 | The `--` separator is optional for tool arguments that dnx does not define; both forms reach the tool | `... --add-source FEED validate f.md` and `... -- validate f.md` both print `ok` | verified |
-| 3 | After `--`, arguments pass to the tool untouched, even ones dnx also defines | `dnx Swarm.Cli@0.1.0 --add-source FEED -- --version` prints `0.1.0` (the tool's version) | verified |
-| 4 | Without `--`, `--version` is consumed by dnx | `dnx Swarm.Cli@0.1.0 --add-source FEED --version` exits 1: `Required argument missing for option: '--version'.` plus dnx help | verified |
-| 5 | Tool options such as `--out` work with or without `--` | `dnx Swarm.Cli@0.1.0 --add-source FEED -- render f.md --out DIR` writes the six files | verified |
-| 6 | `--yes` is accepted by dnx before or after the package id (before `--`) and is not forwarded to the tool | `dnx Swarm.Cli@0.1.0 --yes --add-source FEED -- validate f.md` prints `ok`; also `... --add-source FEED --yes -- validate f.md` and `... FEED validate f.md --yes` print `ok` | verified |
-| 7 | After `--`, `--yes` is forwarded to the tool (and the tool rejects it) | `... -- --yes validate f.md` gives tool error `unknown command '--yes'`, exit 2 | verified |
-| 8 | After `--`, `--yes=true` and `-y` are forwarded untouched | `... -- --yes=true` and `... -- -y` give tool errors `unknown command '--yes=true'` / `'-y'`, exit 2 | verified |
-| 9 | Tool exit codes and stderr pass through dnx unchanged | `... -- validate nope.md` exits 2 with `error: file not found: nope.md` | verified |
-| 10 | `--prerelease` cannot be combined with an `@version` or `--version` | exits 1: `The --prerelease and --version options are not supported in the same command` | verified |
-| 11 | A missing package or version fails with exit 1 and a message listing the searched feeds | `dnx Swarm.Cli@9.9.9 --add-source FEED -- ...` | verified |
-| 12 | No prompt appears with stdin closed (no `--yes` needed) for a local-feed package | all runs above used closed stdin | verified |
-| 13 | Each invocation costs roughly 8 to 25 seconds, cold or warm, dominated by feed lookups (the machine's configured remote feeds are queried too); a first-ever extract of a new version was about 14 s | timed in Git Bash and PowerShell | verified (this machine only) |
-| 14 | Behaviour once the package is published to a public feed (no `--add-source`) | | unverified |
+Each row states only what was run. `FEED` = the folder feed, `f.md` = a valid definition, `bad.md` = the same file with an unknown model alias. Commands are shown after `dnx`; "first lines" means the first lines of stdout or stderr.
+
+| # | Fact | Command and result | Status |
+|---|------|--------------------|--------|
+| 1 | `--add-source` with a local folder feed resolves the package | `Swarm.Cli@0.1.0 --add-source FEED -- validate f.md` exit 0, stdout `ok`; `Swarm.Cli --version 0.1.0 --add-source FEED -- validate f.md` same | verified |
+| 2 | `--` is optional for tool arguments dnx does not define | `Swarm.Cli@0.1.0 --add-source FEED validate f.md` exit 0 `ok`; `... FEED render f.md --out DIR` writes the 6 files | verified |
+| 3 | After `--`, args reach the tool untouched, even ones dnx also defines | `Swarm.Cli@0.1.0 --add-source FEED -- --version` prints `0.1.0` (the tool's) | verified |
+| 4 | Without `--`, `--version` is consumed by dnx | `Swarm.Cli@0.1.0 --add-source FEED --version` exit 1, stderr `Required argument missing for option: '--version'.` plus dnx help | verified |
+| 5 | `--yes` and `-y` placed before the package id are accepted and not forwarded | `--yes Swarm.Cli@0.1.1 --add-source FEED -- validate f.md` exit 0 `ok`; `-y Swarm.Cli@0.1.1 ...` exit 0 `ok` | verified |
+| 6 | `--yes` placed after the package id (before `--`, after `--add-source`, or trailing with no `--`) is accepted and not forwarded | `Swarm.Cli@0.1.0 --yes --add-source FEED -- validate f.md`, `Swarm.Cli@0.1.0 --add-source FEED --yes -- validate f.md`, `Swarm.Cli@0.1.0 --add-source FEED validate f.md --yes`: all exit 0 `ok` | verified |
+| 7 | After `--`, `--yes`, `--yes=true`, `-y` are forwarded to the tool | `Swarm.Cli@0.1.0 --add-source FEED -- --yes validate f.md`, `-- --yes=true`, `-- -y`: exit 2, tool stderr `error: unknown command '--yes'` (resp. `'--yes=true'`, `'-y'`) | verified |
+| 8 | Tool exit codes and stderr pass through dnx | `Swarm.Cli@0.1.1 --add-source FEED -- validate f.md` exit 0 `ok`; `... validate bad.md` exit 1, stderr `error: role 'expert': unknown model alias 'gpt-9' (allowed: ...)`; `... validate nope.md` exit 2, stderr `error: file not found: nope.md` | verified |
+| 9 | `--prerelease` with `@version` or `--version` is rejected | `Swarm.Cli@0.1.1 --prerelease --add-source FEED -- validate f.md` and `Swarm.Cli --version 0.1.1 --prerelease --add-source FEED -- validate f.md`: exit 1, stderr `The --prerelease and --version options are not supported in the same command` | verified |
+| 10 | `--prerelease` alone resolves the newest version including stable ones | `Swarm.Cli --prerelease --add-source FEED -- validate f.md` exit 0 `ok` | verified |
+| 11 | Missing package id | `Swarm.Nope@0.1.1 --add-source FEED -- validate f.md` exit 1, stderr starts `Version 0.1.1 of package swarm.nope is not found in NuGet feeds https://api.nuget.org/v3/index.json, ...`; without a version (`Swarm.Nope --add-source FEED -- ...`) exit 1, `swarm.nope is not found in NuGet feeds ...` | verified |
+| 12 | Missing version of an existing package | `Swarm.Cli@9.9.9 --add-source FEED -- validate f.md` exit 1, stderr starts `Version 9.9.9 of package swarm.cli is not found in NuGet feeds ...` (the message does not distinguish missing id from missing version except by wording) | verified |
+| 13 | A package id starting with `-` is not usable | `-x@1.0.0 --add-source FEED -- validate f.md`, `--add-source FEED -x`, and `--add-source FEED -- -x@1.0.0 validate f.md`: all exit 1, stderr `Unhandled exception: Invalid package id : \`-x\`.` (dnx treats the first non-option token, even after `--`, as the package id) | verified |
+| 14 | No prompt with stdin closed for a local-feed package, with or without `--yes` | every run above | verified |
+| 15 | Each invocation takes roughly 5 to 25 s, cold or warm, dominated by feed lookups (the machine's remote feeds are queried too); a first-ever extract of a new version was about 14 s | timed in Git Bash and PowerShell on this machine | verified (this machine only) |
+| 16 | Behaviour once the package is published to a public feed (no `--add-source`) | not run | unverified |
+
+## Gotcha: stale tool cache
+
+dnx extracts packages to `~/.nuget/packages/<id>/<version>` (here `~/.nuget/packages/swarm.cli/0.1.1`) and reuses that folder. Re-packing the same version with changed code is not picked up. Verified: after dnx had run `0.1.1`, I re-packed `0.1.1` with a different informational version (`-p:Version=0.1.1 -p:InformationalVersion=repacked-different-code`) into the same feed. `dnx Swarm.Cli@0.1.1 --add-source FEED -- --version` still printed `0.1.1` (old code), while a fresh `0.1.2` packed with the same change printed `repacked-different-code`. Safe fix: bump the version for every re-pack (deleting the cached folder also works but was not tried).

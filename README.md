@@ -2,7 +2,7 @@
 
 Pasteable **swarm definitions** that run as wide, orchestrated fleets of Claude Code agents — cheap/small models for the bulk of the work, expert (elevated-model) agents only where needed.
 
-> Status: **scoping**. This repo starts as a capability study and design space, then grows into reusable definitions and tooling.
+> Status: **early tooling**. The capability study and spikes are done, and the first tool is built: `swarm`, which validates a swarm definition (Markdown, YAML or C#) and renders Claude Code agent files, workflow scripts and a runbook. It is not published yet and has not run end to end with real agents. The other planned tools (testgate, batch, squash) are not built yet. See [docs/definition-format.md](docs/definition-format.md).
 
 ## Goals
 
@@ -17,7 +17,7 @@ Pasteable **swarm definitions** that run as wide, orchestrated fleets of Claude 
 
 - Capability matrix: what we can and can't refine about sub-agents; what we can and can't do with cross-session communication and sign-off. See [docs/capabilities.md](docs/capabilities.md).
 - Overview of recent work (last 6 months, i.e. since 2026-04) in the parent `C:\Development` folder that this builds on. See [docs/landscape.md](docs/landscape.md).
-- A first swarm-definition format and a worked example.
+- A first swarm-definition format and a worked example: [docs/definition-format.md](docs/definition-format.md).
 
 ## Layout
 

@@ -64,3 +64,16 @@ dnx extracts packages to `~/.nuget/packages/<id>/<version>` (here `~/.nuget/pack
 | 4 | `Swarm.Batch@0.1.1 --add-source FEED -- run ../smoke-a-tasks.json` (scratch repo with an `epic/E1` branch and one task branch) | stderr progress, one summary line with `"tasksLanded":1,"exitCode":0`, exit 0 (23 s including first-run extraction); `git show epic/E1:one.txt` printed `one` |
 
 Each call took 9 to 10 s on a loaded machine (rows 1 to 3); row 4 took 23 s because it included the first extraction of the `Swarm.Batch` package and the batch run itself. Both tools were bumped to 0.1.1 so a stale `~/.nuget/packages/<id>/<version>` cache could never serve old code (see the stale-cache gotcha above). Packing prints warning NU5039 (no readme); no metadata was added.
+
+### Squash and Batch 0.2.0
+
+`Swarm.Squash` 0.1.0 and `Swarm.Batch` 0.2.0 (both NOT REAL placeholder ids, packed with `dotnet pack src/Swarm.Squash.Cli -c Release -o FEED -warnaserror` and the same for `Swarm.Batch.Cli`; each printed the NU5039 missing-readme message) were run on 2026-10-04 the same way as above, in a second scratch repository (an `epic/E1` branch, task branches `task/9933-one` by Ada and `task/9934-two` by Bob). Only these runs were done; no prompt appeared. Timings are as recorded in the task report and were typed by hand into it. Tool reference: [squash-tool.md](squash-tool.md).
+
+| # | Command (after `dnx.cmd`) | Observed |
+|---|---------------------------|----------|
+| 5 | `Swarm.Squash@0.1.0 --add-source FEED -- --version` | prints `0.1.0`, exit 0 (8 s) |
+| 6 | `Swarm.Squash@0.1.0 --add-source FEED` (no arguments) | `error: Required command was not provided. (see --help)`, exit 2 (8 s) |
+| 7 | `Swarm.Squash@0.1.0 --add-source FEED -- run --task T1 --branch task/9933-one` | stderr `T1: landed f0638d4... on 'epic/E1': 9933: add one`; one JSON line with `"ticket":"9933"`, `"empty":false`, `"exitCode":0`; exit 0 (30 s including first extraction) |
+| 8 | `Swarm.Batch@0.2.0 --add-source FEED -- run ../smoke-b-tasks.json` (one task, `task/9934-two`) | summary with `"lander":"squash"`, `"tasksLanded":1`, `"exitCode":0`; exit 0 (34 s including first extraction) |
+
+Afterwards `git log -2 --format='%an | %s | %(trailers:key=Ticket,valueonly)' epic/E1` printed `Bob | 9934: add two | 9934` and `Ada | 9933: add one | 9933`, and `git rev-list --merges --count main..epic/E1` printed `0`. The nuget cache directories for both packages were removed afterwards so a stale copy could not be served. Row 6 is the runbook's bare `dnx Swarm.Squash@0.1.0` step: it exits 2 and changes nothing.

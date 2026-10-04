@@ -95,3 +95,29 @@ Plan: [2026-10-03-testgate-batch.md](plans/2026-10-03-testgate-batch.md). Tool r
 | Lander | `ILander` seam; default fast-forward to the tested commit until the squash lander (Plan B). |
 | `--base` flag | The PROMOTION.md `batch run --base` flag was dropped: `baseBranch` stays a config key and is consumed only by epic creation in a later plan (Plan C). |
 | Packaging | Placeholder ids `Swarm.TestGate` / `Swarm.Batch`, version 0.1.1, built and run through `dnx` from a local feed only; nothing is published and a real id prefix plus license/authors/readme metadata are still to be decided. |
+
+## Squash lander production plan (2026-10-04)
+
+Plan: [2026-10-03-squash.md](plans/2026-10-03-squash.md). Tool reference: [squash-tool.md](squash-tool.md). The rulings below are as built (S1 to S12 of the plan's Global Constraints); where the build differs from the plan's text, the build is recorded.
+
+| # | Decision | Choice as built |
+|---|---|---|
+| S1 | Content | Each squashed commit takes its tree from the tested integration chain (`commit-tree`, no checkout, no re-merge); nothing is merged twice. |
+| S2 | Tree guarantee | `TreeGuard` compares tree ids with the tested commit (or the last landed task's chain state after a failure) before the epic moves; a mismatch is exit 4 and the epic is not moved. Batch's own post-land check remains a second guard. |
+| S3 | Granularity | One commit per task; consecutive same-ticket members of one stack share a commit; separate stacks never share one. |
+| S4 | Stacks | A stack lands whole or not at all (`Failure` plus `NotAttempted` for its other members and later units). The lander requires request order with contiguous stacks, else exit 4. |
+| S5 | Tickets | `--ticket`, else `squash.ticketPattern` on the branch then the task id, else the task id (or a land failure with `requireTicket`). A rebased copy uses the worker branch from its reflog. Under `requireTicket` a ticket-less no-op task also fails its unit (open question for the human, see [squash-tool.md](squash-tool.md#tickets)). |
+| S6 | Message | Templated subject (`{ticket}: {title}`), a commit list when there is more than one, fixed trailers `Ticket`, `Epic`, `Batch`, `Swarm-Run`, `Task`, `Source-Commit`, `Co-authored-by`. |
+| S7 | Identity | Committer `swarm-batch`; author = oldest original author (or the tool), others as `Co-authored-by`; no hooks, no signing; inherited `GIT_AUTHOR_*`/`GIT_COMMITTER_*` removed; commits of already-squashed branches are excluded through `Source-Commit:` trailers (bounded by `baseBranch`, chunked). |
+| S8 | Empty tasks | No empty commits; counted as landed. |
+| S9 | Epic move | One compare-and-swap `update-ref` per land when the tip changed; an all-empty `squash run` re-reads the ref and exits 4 if the epic moved. |
+| S10 | Default lander | `squash` (config key `lander`; `fast-forward` remains); `Swarm.Batch` 0.2.0; `Swarm.Squash` 0.1.0, NOT REAL placeholder id, nothing published. |
+| S11 | Batch wiring | `Program.Run(..., Func<SwarmConfig, ILander>)` overload added; `Main` passes `Landers.Create`. |
+| S12 | `squash run` | One task; shares the per-epic lock and the integration worktree with batch; `Batch: 0`; exit 0 landed or empty, 1 conflict or land failure, 2 usage or config, 3 bad input, 4 environment. |
+
+Cross-plan facts:
+
+- The `ILander` contract and `LandRequest`/`LandResult`/`LandedTask`/`LandFailure` are unchanged from the testgate + batch plan; the `Program.Run(args, stdout, stderr, cwd, ILander)` overload is unchanged and the `Func<SwarmConfig, ILander>` overload is the only addition.
+- `GitRunner` gained `WithEnvironment`; `SwarmConfig` gained `lander` and `squash` (old files stay valid, unknown keys still rejected); `baseBranch` is now used by the squash lander.
+- Azure DevOps (`example-org`): epic branches must be `feature/` or `bugfix/` through `epicBranchTemplate`; the tool does not enforce this.
+- Bare `dnx Swarm.Squash@0.1.0` (the renderer sample's runbook step) exits 2 and changes nothing; the sample's separate `tool:squash` step is a mismatch for a later renderer change.

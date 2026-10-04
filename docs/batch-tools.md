@@ -13,12 +13,12 @@ Everything below was checked against the source and, where marked, by running th
 
 - Requires the .NET 10 SDK or later (`dnx` ships with it).
 - **NOT REAL: nothing is published.** The package ids `Swarm.TestGate` and `Swarm.Batch` are placeholders that were not checked for ownership on nuget.org; anyone could publish a package under those ids (404 / dependency-confusion risk). Run them only from your own feed with `--add-source <your feed>`. Before any publish: reserve an owned id prefix, and add license, authors and readme metadata (`dotnet pack` currently emits warning NU5039, missing readme).
-- Both packages are version `0.1.1`. dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)).
+- `Swarm.TestGate` is version `0.1.1`; `Swarm.Batch` is `0.2.0` (squash became the default lander). dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)).
 - dnx rules that matter here: there is no `--yes`, use `dnx.cmd` in Git Bash, and put `--` before the tool's own arguments. Details and the smoke runs of both tools: [dnx-invocation-notes.md](dnx-invocation-notes.md).
 
 ```bash
 dnx.cmd Swarm.TestGate@0.1.1 --add-source FEED -- run -- dotnet test
-dnx.cmd Swarm.Batch@0.1.1 --add-source FEED -- run tasks.json
+dnx.cmd Swarm.Batch@0.2.0 --add-source FEED -- run tasks.json
 ```
 
 ## testgate
@@ -67,7 +67,7 @@ Flow:
 7. **Rebase-copy requeue.** A task returned for a conflict is rebased onto the epic tip as a copy branch `rebased/<epic>/<task>` (the worker's branch is never modified) and requeued, up to `maxRebaseAttempts` (default 1). A task that lands this way counts as landed and the run can still exit 0. A copy that conflicts again is `needs-worker`; a copy with nothing left to land is `no-op-after-rebase`. Tasks that are part of a stack in the tasks file are never auto-rebased, even when a lander landed part of the stack.
 8. **Tool-made commits.** Integration merges and rebased copies are committed as `swarm-batch` with signing off (`commit.gpgSign=false`), so a user's signing setup cannot fail them or wait on a pinentry prompt. Integration merges skip the `pre-merge-commit` and `commit-msg` hooks (`--no-verify`). The copy rebase still runs the repository's hooks: a `pre-rebase` rejection is treated like a rebase conflict (`needs-worker`).
 9. **Stacks.** Tasks linked by `dependsOn` land as one unit: they are batched together, never split by bisect, and merged in order.
-10. **Landing.** The lander moves the epic branch from the tip seen at the start of the batch to the tested commit (compare-and-swap), so the epic only ever holds tested content. If the epic moved during the run, nothing lands for that batch and the run ends with exit 4.
+10. **Landing.** The lander moves the epic branch from the tip seen at the start of the batch (compare-and-swap), either to new squashed commits whose final tree is the tested tree (`squash`, the default: one trailer-stamped commit per task, see [squash-tool.md](squash-tool.md)) or to the tested integration commit itself (`fast-forward`), so the epic only ever holds tested content. If the epic moved during the run, nothing lands for that batch and the run ends with exit 4.
 
 The epic branch must exist before the run (`git branch epic/E1 main`) and must not be checked out anywhere. Epic creation is not part of this tool.
 
@@ -98,7 +98,7 @@ public interface ILander
 
 Rules a lander must follow (the engine checks them and exits 4 on a violation): land in request order and stop at the first failure; move the epic only from `EpicTipBefore`; never touch task branches; account for every task exactly once; report tasks as not attempted only after a failure; when nothing failed, the landed tree must equal the tested tree.
 
-The only lander today is `FastForwardLander` (name `fast-forward`): it moves the epic to the tested integration commit, so **each task leaves one merge commit on the epic** (plus the batch's merge structure). It is a stand-in until the squash lander (a separate plan, [2026-10-03-squash.md](plans/2026-10-03-squash.md)) replaces it. `batch`'s `Program.Run(args, stdout, stderr, cwd, ILander)` overload exists so another lander can be passed in.
+Two landers exist and `batch` uses the one named by the config key `lander`: `squash` (default; `SquashLander` in `Swarm.Squashing`, one trailer-stamped commit per task or per same-ticket run of a stack, see [squash-tool.md](squash-tool.md)) and `fast-forward` (`FastForwardLander`: moves the epic to the tested integration commit, so each task leaves one merge commit on the epic). `batch`'s `Program.Run(args, stdout, stderr, cwd, ILander)` overload passes a fixed lander; `Program.Run(args, stdout, stderr, cwd, Func<SwarmConfig, ILander>)` creates it from the resolved config, which is what `Main` does (`Landers.Create`).
 
 ## Tasks file
 
@@ -156,7 +156,9 @@ Both tools read one shared file. Lookup order: command-line flags win over the f
 | `heartbeatSec` | `5` | >= 1 | |
 | `pollMs` | `200` | 10 to 60000 | |
 | `maxWaitSec` | `3600` | >= 0; 0 = wait forever; on timeout exit 5 | `--max-wait` |
-| `baseBranch` | `main` | non-empty, no whitespace, not starting with `-`; read and validated but not used by testgate or batch (reserved for epic creation in a later plan) | none |
+| `baseBranch` | `main` | non-empty, no whitespace, not starting with `-`; used by the squash lander to bound the epic history scanned for already-landed `Source-Commit:` trailers (`<baseBranch>..<epic>`); not used by testgate or the fast-forward lander | none |
+| `lander` | `squash` | `"squash"` or `"fast-forward"` | none |
+| `squash` | see [squash-tool.md#configuration](squash-tool.md#configuration) | object (`ticketPattern`, `requireTicket`, `subjectTemplate`, `author`) | none |
 | `epic` | `E1` | a safe name | `--epic` (batch only) |
 | `epicBranchTemplate` | `epic/{epic}` | must contain `{epic}` | |
 | `testCommand` | `["dotnet","test"]` | non-empty array of non-empty strings (program, then arguments) | after `--` (testgate only) |
@@ -224,4 +226,4 @@ When batch ends with an exit code above 1 it also prints `error: <note>` on stde
 - A `testgate run` that fails to start, times out waiting or is cancelled leaves no entry in `testgate.events.jsonl`.
 - The full `Swarm.Tools.Tests` suite takes about 13 to 15 minutes on Windows (most of it git and `dotnet` process starts). It is not hung; run a focused `--filter` while iterating.
 - A few timing tests are sensitive to a busy machine; re-run a single failure alone before treating it as a regression.
-- Multi-machine gates, hunk-level conflict prediction and the squash lander are out of scope (later plans).
+- Multi-machine gates and hunk-level conflict prediction are out of scope (later plans).

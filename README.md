@@ -2,7 +2,7 @@
 
 Pasteable **swarm definitions** that run as wide, orchestrated fleets of Claude Code agents — cheap/small models for the bulk of the work, expert (elevated-model) agents only where needed.
 
-> Status: **early tooling**. The capability study and spikes are done, and the first tool is built: `swarm`, which validates a swarm definition (Markdown, YAML or C#) and renders Claude Code agent files, workflow scripts and a runbook. It is not published yet and has not run end to end with real agents. Two more tools are built but not published: `testgate` and `batch` (see [docs/batch-tools.md](docs/batch-tools.md) and the [plan](docs/plans/2026-10-03-testgate-batch.md)); squash is not built yet. See [docs/definition-format.md](docs/definition-format.md).
+> Status: **early tooling**. The capability study and spikes are done, and the first tool is built: `swarm`, which validates a swarm definition (Markdown, YAML or C#) and renders Claude Code agent files, workflow scripts and a runbook. It is not published yet and has not run end to end with real agents. Three more tools are built but not published: `testgate`, `batch` and `squash` (see [docs/batch-tools.md](docs/batch-tools.md), [docs/squash-tool.md](docs/squash-tool.md) and the plans [testgate + batch](docs/plans/2026-10-03-testgate-batch.md) and [squash](docs/plans/2026-10-03-squash.md)). See [docs/definition-format.md](docs/definition-format.md).
 
 ## Goals
 

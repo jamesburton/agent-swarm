@@ -3,25 +3,36 @@ using Swarm.Batching;
 using Swarm.Git;
 using Swarm.RunState;
 using Swarm.RunState.Cli;
+using Swarm.Squashing;
 
 namespace Swarm.Batch.Cli;
 
 /// <summary>The <c>batch</c> tool: batched integration testing with bisect, landing green tasks on the epic branch.</summary>
 public static class Program
 {
-    /// <summary>Process entry point.</summary>
+    /// <summary>Process entry point: the lander comes from config (<c>lander</c>, default <c>squash</c>).</summary>
     /// <param name="args">Command-line arguments.</param>
     /// <returns>The exit code (see <see cref="ExitCodes"/>).</returns>
-    public static int Main(string[] args) => Run(args, Console.Out, Console.Error, Directory.GetCurrentDirectory(), new FastForwardLander());
+    public static int Main(string[] args) => Run(args, Console.Out, Console.Error, Directory.GetCurrentDirectory(), Landers.Create);
 
-    /// <summary>Runs the tool (testable entry point).</summary>
+    /// <summary>Runs the tool with a fixed lander (testable entry point, Plan A).</summary>
     /// <param name="args">Command-line arguments.</param>
     /// <param name="stdout">Receives exactly one JSON summary line.</param>
     /// <param name="stderr">Receives progress and the one-line error.</param>
     /// <param name="currentDirectory">Directory treated as the current directory.</param>
     /// <param name="lander">How green tasks land on the epic.</param>
     /// <returns>The exit code.</returns>
-    public static int Run(string[] args, TextWriter stdout, TextWriter stderr, string currentDirectory, ILander lander)
+    public static int Run(string[] args, TextWriter stdout, TextWriter stderr, string currentDirectory, ILander lander) =>
+        Run(args, stdout, stderr, currentDirectory, _ => lander);
+
+    /// <summary>Runs the tool, choosing the lander from the resolved config.</summary>
+    /// <param name="args">Command-line arguments.</param>
+    /// <param name="stdout">Receives exactly one JSON summary line.</param>
+    /// <param name="stderr">Receives progress and the one-line error.</param>
+    /// <param name="currentDirectory">Directory treated as the current directory.</param>
+    /// <param name="landerFor">Creates the lander from the validated config.</param>
+    /// <returns>The exit code.</returns>
+    public static int Run(string[] args, TextWriter stdout, TextWriter stderr, string currentDirectory, Func<SwarmConfig, ILander> landerFor)
     {
         var common = new CommonOptions();
         var tasks = new Argument<string>("tasks") { Description = "Tasks file: JSON array of { id, branch, dependsOn? } in queue order" };
@@ -57,6 +68,7 @@ public static class Program
                 Prebatch = p.GetValue(noPrebatch) ? false : null,
                 FixedSize = p.GetValue(fixedSize),
             };
+            var lander = landerFor(ctx.Config);
             using var ctrlC = new CtrlCScope();
             var summary = new BatchEngine(ctx.Repo, options, lander, new Progress(stderr, ctx.Verbosity)).Run(ctrlC.Token);
             stdout.WriteLine(SwarmJson.Line(summary));

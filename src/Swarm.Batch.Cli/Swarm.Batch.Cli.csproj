@@ -6,7 +6,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>batch</ToolCommandName>
     <PackageId>Swarm.Batch</PackageId>
-    <Version>0.1.1</Version>
+    <Version>0.2.0</Version>
     <Description>NOT REAL placeholder package id (unclaimed on nuget.org). Adaptive batched integration testing with bisect for agent swarms.</Description>
   </PropertyGroup>
   <ItemGroup>
@@ -14,5 +14,6 @@
     <ProjectReference Include="..\Swarm.RunState\Swarm.RunState.csproj" />
     <ProjectReference Include="..\Swarm.Gate\Swarm.Gate.csproj" />
     <ProjectReference Include="..\Swarm.Batching\Swarm.Batching.csproj" />
+    <ProjectReference Include="..\Swarm.Squashing\Swarm.Squashing.csproj" />
   </ItemGroup>
 </Project>

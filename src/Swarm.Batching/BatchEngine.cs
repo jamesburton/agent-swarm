@@ -54,6 +54,10 @@ public sealed class BatchEngine
     readonly string epicBranch;
     readonly TouchIndex touches;
     readonly Dictionary<string, TaskSpec> original = new(StringComparer.Ordinal);
+    readonly Dictionary<string, int> position = new(StringComparer.Ordinal);
+
+    // Units going back to the queue front after the current top-level batch (requeued and rebased copies).
+    readonly List<TaskUnit> front = [];
     readonly List<string> landedIds = [];
     readonly List<LandedRecord> landed = [];
     readonly List<SuiteRecord> suites = [];
@@ -126,6 +130,7 @@ public sealed class BatchEngine
 
         var integrationPath = StatePaths.Guard(Path.Combine(StatePaths.ResolveWorktreeRoot(repo, config.WorktreeRoot), "int-" + config.Epic), "integration worktree");
         var tasks = TasksFile.Load(options.TasksFile);
+        EnsureNoCopyNameClash(tasks);
         RepoChecks.EnsureEpic(main, epicBranch);
         runId = options.RunId ?? RunDirectories.NewRunId(config.Epic, DateTime.UtcNow);
         var lockOptions = SlotOptions.From(config) with { Slots = 1, MaxWait = null };
@@ -138,6 +143,7 @@ public sealed class BatchEngine
         ledger = new ReturnLedger(Path.Combine(runDir, "returned.jsonl"), runId);
         foreach (var t in tasks)
         {
+            position[t.Id] = original.Count;
             original[t.Id] = t;
         }
 
@@ -229,15 +235,19 @@ public sealed class BatchEngine
             sizeTrace.Add(size);
             progress.Info($"batch {batchNo} size {size}: {Ids(pick)}");
             events!.Write(EventTypes.BatchStart, new { batch = batchNo, size, tasks = pick.SelectMany(u => u.Ids).ToList() });
-            var outcome = ProcessSet(pick, batchNo, knownRed: false, bisect: false, queue, ct);
-            RebaseReturned(queue);
+            var outcome = ProcessSet(pick, batchNo, knownRed: false, bisect: false, ct);
+            RebaseReturned();
+
+            // Requeued units go back as one block in tasks-file order, so "the later task is blamed" still holds.
+            queue.InsertRange(0, front.OrderBy(u => u.Members.Min(m => position[m.Id])));
+            front.Clear();
             size = BatchPlanner.NextSize(size, outcome.Red, min, max);
         }
 
         integration.ResetTo(GitRunner.HeadsRef(epicBranch));
     }
 
-    SetOutcome ProcessSet(IReadOnlyList<TaskUnit> units, int batch, bool knownRed, bool bisect, List<TaskUnit> queue, CancellationToken ct)
+    SetOutcome ProcessSet(IReadOnlyList<TaskUnit> units, int batch, bool knownRed, bool bisect, CancellationToken ct)
     {
         var tip = EpicTip();
         var integ = integration!.Integrate(tip, units);
@@ -268,7 +278,7 @@ public sealed class BatchEngine
         batchLog.Add(new BatchLogEntry(batch, bisect, mergedIds, knownRed ? "red (inferred)" : red ? "red" : "green"));
         if (!red)
         {
-            return new SetOutcome(false, LandSet(integ, tip, batch, queue) && integ.Conflicts.Count == 0);
+            return new SetOutcome(false, LandSet(integ, tip, batch) && integ.Conflicts.Count == 0);
         }
 
         if (integ.Merged.Count == 1)
@@ -279,10 +289,10 @@ public sealed class BatchEngine
 
         var (left, right) = BatchPlanner.Halve(integ.Merged);
         events.Write(EventTypes.Bisect, new { batch, left = left.SelectMany(u => u.Ids).ToList(), right = right.SelectMany(u => u.Ids).ToList() });
-        var l = ProcessSet(left, batch, knownRed: false, bisect: true, queue, ct);
+        var l = ProcessSet(left, batch, knownRed: false, bisect: true, ct);
 
         // Left green and fully landed: epic tip + right is exactly the state already seen red, so infer instead of re-running.
-        ProcessSet(right, batch, knownRed: !l.Red && l.CleanAndLanded, bisect: true, queue, ct);
+        ProcessSet(right, batch, knownRed: !l.Red && l.CleanAndLanded, bisect: true, ct);
         return new SetOutcome(true, false);
     }
 
@@ -307,7 +317,7 @@ public sealed class BatchEngine
         return run.Result.ExitCode;
     }
 
-    bool LandSet(IntegrationResult integ, string tip, int batch, List<TaskUnit> queue)
+    bool LandSet(IntegrationResult integ, string tip, int batch)
     {
         var members = integ.Merged.SelectMany(u => u.Members).ToList();
         var byId = members.ToDictionary(t => t.Id, StringComparer.Ordinal);
@@ -332,7 +342,7 @@ public sealed class BatchEngine
         var requeue = members.Where(t => result.NotAttempted.Contains(t.Id) && !returnedHere.Contains(t.Id)).ToList();
         if (requeue.Count > 0)
         {
-            queue.InsertRange(0, TaskUnits.Build(requeue));
+            front.AddRange(TaskUnits.Build(requeue));
             events!.Write(EventTypes.Requeue, new { batch, tasks = requeue.Select(t => t.Id).ToList(), reason = "not attempted after a land failure" });
             progress.Info($"  REQUEUE {string.Join(',', requeue.Select(t => t.Id))}: not attempted after a land failure; retested next batch");
         }
@@ -408,20 +418,14 @@ public sealed class BatchEngine
 
     // After each top-level batch: rebase a COPY of each conflicting task onto the epic tip; clean => requeue at the front.
     // The copy is always rebuilt from the ORIGINAL worker branch (never from an earlier copy), so the worker branch is
-    // never moved or deleted (R9) and a requeued copy is never both the source and the target of a rebase.
-    void RebaseReturned(List<TaskUnit> queue)
+    // never moved or deleted (R9) and a requeued copy is never both the source and the target of a rebase. Copy names
+    // never equal a worker branch (EnsureNoCopyNameClash).
+    void RebaseReturned()
     {
         foreach (var entry in ledger!.Pending())
         {
             var task = original[entry.Task];
-            var copy = $"rebased/{config.Epic}/{task.Id}";
-            if (string.Equals(copy, task.Branch, StringComparison.Ordinal))
-            {
-                progress.Info($"  REBASE {task.Id}: skipped, the worker branch is named like the copy ref -> needs-worker");
-                ledger.Record(entry with { Rebase = RebaseState.Skipped, Final = FinalState.NeedsWorker, Reason = $"{entry.Reason} (no automatic rebase: worker branch '{task.Branch}' has the copy ref's name)" });
-                continue;
-            }
-
+            var copy = CopyBranch(task.Id);
             var attempts = rebaseAttempts.GetValueOrDefault(task.Id);
             if (attempts >= config.MaxRebaseAttempts)
             {
@@ -449,13 +453,26 @@ public sealed class BatchEngine
             }
 
             touches.Set(task.Id, files);
-            queue.Insert(0, new TaskUnit([task with { Branch = copy }]));
+            front.Add(new TaskUnit([task with { Branch = copy }]));
             progress.Info($"  REBASE {task.Id}: clean -> requeued as {copy}");
             ledger.Record(entry with { Rebase = RebaseState.Clean, RebasedBranch = copy, RebaseOutput = outcome.Output, Final = FinalState.Requeued });
         }
     }
 
     string EpicTip() => main.RevParse(GitRunner.HeadsRef(epicBranch));
+
+    string CopyBranch(string taskId) => $"rebased/{config.Epic}/{taskId}";
+
+    // A worker branch named like any task's rebase copy would be reset (checkout -B) or deleted (branch -D) by that
+    // task's automatic rebase, so such a tasks file is rejected before anything is created.
+    void EnsureNoCopyNameClash(IReadOnlyList<TaskSpec> tasks)
+    {
+        var copies = tasks.Select(t => CopyBranch(t.Id)).ToHashSet(StringComparer.Ordinal);
+        if (tasks.FirstOrDefault(t => copies.Contains(t.Branch)) is { } clash)
+        {
+            throw new ToolException(ExitCodes.BadInput, $"task '{clash.Id}': branch '{clash.Branch}' is reserved for the batch tool's rebase copies", "rename the task branch (rebased/<epic>/<task id> is tool-owned)");
+        }
+    }
 
     ReturnedEntry Entry(TaskSpec t, string kind, string stage, int batch, string reason)
     {

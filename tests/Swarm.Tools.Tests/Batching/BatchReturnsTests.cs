@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Swarm.Batching;
 using Swarm.Git;
 using Swarm.RunState;
@@ -80,17 +81,68 @@ public class BatchReturnsTests
         Assert.Equal(1, s.NeedsWorker);
     }
 
-    [Fact]
-    public void WorkerBranchNamedLikeTheCopy_IsNeverRebasedOrDeleted()
+    [Theory]
+    [InlineData("T2")] // the task's own copy name
+    [InlineData("T1")] // another task's copy name: T1's rebase would reset or delete T2's worker branch
+    public void WorkerBranchNamedLikeACopy_IsBadInput_NothingCreatedOrMoved(string copyOf)
     {
-        using var repo = SharedFileRepo(t2Branch: "rebased/E1/T2");
-        var worker = repo.Sha("rebased/E1/T2");
-        var s = BatchScenario.Run(repo, repo.WriteTasks(new TaskLine("T1", "task/T1"), new TaskLine("T2", "rebased/E1/T2")), prebatch: false);
-        var t2 = BatchScenario.Returned(s)["T2"];
-        Assert.Equal((RebaseState.Skipped, FinalState.NeedsWorker), (t2.Rebase, t2.Final));
-        Assert.Null(t2.RebasedBranch);
-        Assert.Equal(worker, repo.Sha("rebased/E1/T2"));
+        var branch = "rebased/E1/" + copyOf;
+        using var repo = SharedFileRepo(t2Branch: branch);
+        var worker = repo.Sha(branch);
+        var tasks = repo.WriteTasks(new TaskLine("T1", "task/T1"), new TaskLine("T2", branch));
+        var e = Assert.Throws<ToolException>(() => BatchScenario.Run(repo, tasks, prebatch: false));
+        Assert.Equal(ExitCodes.BadInput, e.ExitCode);
+        Assert.Contains($"branch '{branch}' is reserved", e.Message);
+        Assert.False(Directory.Exists(repo.StateDir));
+        Assert.Equal(worker, repo.Sha(branch));
     }
+
+    [Fact]
+    public void TwoRebasedCopies_AreRequeuedInTasksFileOrder_LaterTaskIsBlamed()
+    {
+        using var repo = TempRepo.Create();
+        repo.Commit("base", ("a.txt", "base\n"), ("b.txt", "base\n"));
+        repo.Epic();
+
+        // T1 is red and conflicts with both T2 and T3 at merge; once T1 is rejected both rebase cleanly.
+        repo.Branch("task/T1", "epic/E1", ("a.txt", "one\n"), ("b.txt", "one\n"), ("T1.fail", ""));
+
+        // T2 + T3 together are red (pair rule), each alone is green.
+        repo.Branch("task/T2", "epic/E1", ("a.txt", "two\n"), ("pair.fail", "t3only.txt\n"));
+        repo.Branch("task/T3", "epic/E1", ("b.txt", "three\n"), ("t3only.txt", "3\n"));
+        var s = BatchScenario.Run(repo, ThreeTasks(repo), prebatch: false);
+        Assert.Equal(new[] { "T2", "T3" }, BatchTasks(s)[1]);
+        Assert.Equal(new[] { "T2" }, s.Landed.Select(l => l.Id));
+        var returned = BatchScenario.Returned(s);
+        Assert.Equal((ReturnKind.Red, FinalState.ReturnedRed), (returned["T3"].Kind, returned["T3"].Final));
+        Assert.Equal(FinalState.ReturnedRed, returned["T1"].Final);
+    }
+
+    [Fact]
+    public void NotAttemptedAndRebasedCopies_AreRequeuedInTasksFileOrder()
+    {
+        using var repo = TempRepo.Create();
+        repo.Commit("base", ("shared.txt", "base\n"));
+        repo.Epic();
+        repo.Branch("task/T1", "epic/E1", ("t1.txt", "1\n"));
+        repo.Branch("task/T2", "epic/E1", ("shared.txt", "two\n"));
+        repo.Branch("task/T3", "epic/E1", ("t3.txt", "3\n"));
+        repo.Branch("task/T4", "epic/E1", ("shared.txt", "four\n"));
+
+        // Batch 1: T4 conflicts with T2 at merge; the lander fails at T2, so T3 is not attempted.
+        var tasks = repo.WriteTasks(new TaskLine("T1", "task/T1"), new TaskLine("T2", "task/T2"), new TaskLine("T3", "task/T3"), new TaskLine("T4", "task/T4"));
+        var s = BatchScenario.Run(repo, tasks, lander: new FailOnceLander("T2"), prebatch: false);
+        var batches = BatchTasks(s);
+        Assert.Equal(new[] { "T1", "T2", "T3", "T4" }, batches[0]);
+        Assert.Equal(new[] { "T2", "T3", "T4" }, batches[1]);
+        Assert.Equal(new[] { "T1", "T2", "T3" }, s.Landed.Select(l => l.Id));
+    }
+
+    static List<string[]> BatchTasks(BatchSummary s) =>
+        [.. File.ReadAllLines(s.EventsFile)
+            .Select(l => JsonDocument.Parse(l).RootElement)
+            .Where(e => e.GetProperty("type").GetString() == EventTypes.BatchStart)
+            .Select(e => e.GetProperty("data").GetProperty("tasks").EnumerateArray().Select(t => t.GetString()!).ToArray())];
 
     [Fact]
     public void Prebatch_SeparatesSameFileTasks_ConflictIsAgainstLandedPartner()

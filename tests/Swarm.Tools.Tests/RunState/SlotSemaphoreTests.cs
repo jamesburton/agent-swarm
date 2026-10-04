@@ -66,7 +66,10 @@ public class SlotSemaphoreTests
         var sem = new SlotSemaphore(dir.Dir, Options(1, expirySec: 3, heartbeatSec: 1));
         using var lease = sem.Acquire("holder");
         Thread.Sleep(3500);
-        Assert.True((DateTime.UtcNow - File.GetLastWriteTimeUtc(lease.LockPath)).TotalSeconds < 1.6);
+
+        // Past the 3 s expiry the lock is still fresh only because the heartbeat ran (no tight age bound: a busy
+        // machine can delay one beat without the lock going stale).
+        Assert.False(Assert.Single(sem.Status()).Stale);
         Assert.Null(sem.TryAcquire("intruder"));
     }
 

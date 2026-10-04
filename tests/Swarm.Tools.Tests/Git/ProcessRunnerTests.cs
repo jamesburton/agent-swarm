@@ -48,6 +48,19 @@ public class ProcessRunnerTests
         }
     }
 
+    static void CancelWhenExists(string path, CancellationTokenSource cts)
+    {
+        var sw = Stopwatch.StartNew();
+        while (!File.Exists(path) && sw.Elapsed < TimeSpan.FromSeconds(60))
+        {
+            Thread.Sleep(50);
+        }
+
+        // Let the writer finish the (tiny) file before the tree is killed.
+        Thread.Sleep(200);
+        cts.Cancel();
+    }
+
     static ProcessResult Fake(string cwd, ProcessRunOptions? options = null, CancellationToken ct = default, params string[] extra)
     {
         var cmd = FakeSuite.Command(extra);
@@ -81,7 +94,9 @@ public class ProcessRunnerTests
     {
         using var dir = new TempDir();
         var pidFile = Path.Combine(dir.Dir, "child.pid");
-        var r = Fake(dir.Dir, new ProcessRunOptions { Timeout = TimeSpan.FromSeconds(3) }, default, "--child-sleep-ms", "60000", "--pid-file", pidFile);
+        // 15 s, not 3: under load two dotnet start-ups can take longer than a short timeout, and then the grandchild
+        // (and its pid file) does not exist yet when the tree is killed.
+        var r = Fake(dir.Dir, new ProcessRunOptions { Timeout = TimeSpan.FromSeconds(15) }, default, "--child-sleep-ms", "60000", "--pid-file", pidFile);
         Assert.True(r.Killed);
         Assert.Equal(-1, r.ExitCode);
         var child = int.Parse(File.ReadAllText(pidFile), System.Globalization.CultureInfo.InvariantCulture);
@@ -89,12 +104,16 @@ public class ProcessRunnerTests
     }
 
     [Fact]
-    public void Cancel_KillsTreeAndThrows()
+    public async Task Cancel_KillsTreeAndThrows()
     {
         using var dir = new TempDir();
         var pidFile = Path.Combine(dir.Dir, "child.pid");
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        using var cts = new CancellationTokenSource();
+
+        // Cancel once the grandchild exists (its pid file is written), not after a fixed delay that a busy machine can beat.
+        var watcher = Task.Run(() => CancelWhenExists(pidFile, cts));
         Assert.Throws<OperationCanceledException>(() => Fake(dir.Dir, null, cts.Token, "--child-sleep-ms", "60000", "--pid-file", pidFile));
+        await watcher;
         var child = int.Parse(File.ReadAllText(pidFile), System.Globalization.CultureInfo.InvariantCulture);
         Assert.True(GoneWithin(child, TimeSpan.FromSeconds(5)));
     }

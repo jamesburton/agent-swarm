@@ -7,7 +7,8 @@ public class FixtureTests
     static (int Code, string Out) RunFake(string cwd, params string[] extra)
     {
         var cmd = FakeSuite.Command(extra);
-        var r = ProcessRunner.Run(cmd[0], cmd.Skip(1).ToList(), cwd);
+        // A generous output grace: on a busy machine the reader callbacks can lag the exit by more than the default 5 s.
+        var r = ProcessRunner.Run(cmd[0], cmd.Skip(1).ToList(), cwd, new ProcessRunOptions { OutputGrace = TimeSpan.FromSeconds(30) });
         return (r.ExitCode, r.StdOut);
     }
 

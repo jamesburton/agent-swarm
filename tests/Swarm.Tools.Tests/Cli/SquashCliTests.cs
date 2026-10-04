@@ -118,6 +118,23 @@ public class SquashCliTests
     }
 
     [Fact]
+    public void Run_RequireTicket_TicketlessNoOp_IsEmptyWithNullTicket()
+    {
+        // The branch adds nothing to the epic: no commit is made, so no ticket is needed (Ruling B3-final).
+        using var repo = TempRepo.Create();
+        repo.Epic();
+        repo.Git("branch", "task/T1", "epic/E1");
+        var before = repo.Sha("epic/E1");
+        var config = Config(repo, c => c with { Squash = new SquashConfig { RequireTicket = true } });
+        var (code, output, _) = Run(repo, "run", "--task", "T1", "--branch", "task/T1", "--config", config);
+        Assert.Equal(ExitCodes.Ok, code);
+        var json = SingleJsonLine(output);
+        Assert.True(json.GetProperty("empty").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, json.GetProperty("ticket").ValueKind);
+        Assert.Equal(before, repo.Sha("epic/E1"));
+    }
+
+    [Fact]
     public void Run_MissingBranch_Exit3()
     {
         using var repo = RepoWithParserBranch();

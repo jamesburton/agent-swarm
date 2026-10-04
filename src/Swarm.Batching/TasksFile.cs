@@ -11,7 +11,7 @@ namespace Swarm.Batching;
 public sealed record TaskSpec(string Id, string Branch, IReadOnlyList<string> DependsOn)
 {
     /// <summary>Gets the full ref of <see cref="Branch"/>.</summary>
-    public string BranchRef => "refs/heads/" + Branch;
+    public string BranchRef => GitRunner.HeadsRef(Branch);
 }
 
 /// <summary>Reads and validates a tasks file.</summary>

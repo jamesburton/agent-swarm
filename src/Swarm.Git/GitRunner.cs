@@ -80,4 +80,9 @@ public sealed class GitRunner
     /// <param name="rev">The revision.</param>
     /// <returns>The sha.</returns>
     public string RevParse(string rev) => Run("rev-parse", "--verify", rev + "^{commit}");
+
+    /// <summary>Builds the full ref of a local branch.</summary>
+    /// <param name="branch">Branch name, for example <c>epic/E1</c>.</param>
+    /// <returns><c>refs/heads/</c> plus the name.</returns>
+    public static string HeadsRef(string branch) => "refs/heads/" + branch;
 }

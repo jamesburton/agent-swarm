@@ -38,6 +38,36 @@ public class JsonlFileTests
     }
 
     [Fact]
+    public void Append_AfterTruncatedFragment_StartsNewLine()
+    {
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Dir, "x.jsonl");
+        File.WriteAllText(path, "{\"a\":1");
+        JsonlFile.Append(path, new Line(1, 1));
+        Assert.Equal(new Line(1, 1), Assert.Single(JsonlFile.ReadAll<Line>(path)));
+    }
+
+    [Fact]
+    public void ReadAll_SkipsNullLines()
+    {
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Dir, "x.jsonl");
+        File.WriteAllText(path, "null\n");
+        JsonlFile.Append(path, new Line(1, 1));
+        Assert.Single(JsonlFile.ReadAll<Line>(path));
+    }
+
+    [Fact]
+    public void ReturnLedger_ReadLatest_SurvivesFragment()
+    {
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Dir, "returned.jsonl");
+        File.WriteAllText(path, "{\"schemaVersion\":1,");
+        new ReturnLedger(path, "run1").Record(ReturnLedger.New("T1", "task/T1", ReturnKind.Red, ReturnStage.Suite, 1, "red"));
+        Assert.Equal("T1", Assert.Single(ReturnLedger.ReadLatest(path)).Key);
+    }
+
+    [Fact]
     public void ReturnLedger_LastLinePerTaskWins()
     {
         using var dir = new TempDir();

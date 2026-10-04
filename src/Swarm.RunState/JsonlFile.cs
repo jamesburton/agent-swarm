@@ -20,11 +20,28 @@ public static class JsonlFile
         SharedFile.Retry(
             () =>
             {
-                using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+                // ReadWrite access (not Append mode) lets us inspect the last byte inside the same exclusive open.
+                using var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+                if (stream.Length > 0)
+                {
+                    stream.Seek(-1, SeekOrigin.End);
+                    var last = stream.ReadByte();
+
+                    // A crash mid-append left a fragment: terminate it so this record starts on its own line.
+                    if (last != '\n')
+                    {
+                        stream.WriteByte((byte)'\n');
+                    }
+                }
+                else
+                {
+                    stream.Seek(0, SeekOrigin.End);
+                }
+
                 stream.Write(bytes);
             },
-            attempts: 400,
-            delayMs: 10);
+            attempts: 2000,
+            delayMs: 2);
     }
 
     /// <summary>Reads every complete line.</summary>
@@ -47,6 +64,23 @@ public static class JsonlFile
 
         // The element after the last '\n' is empty, or a line still being written: skip it either way.
         var lines = text.Split('\n');
-        return lines[..^1].Where(l => l.Trim().Length > 0).Select(l => JsonSerializer.Deserialize<T>(l, SwarmJson.Compact)!).ToList();
+        var records = new List<T>();
+        foreach (var line in lines[..^1].Where(l => l.Trim().Length > 0))
+        {
+            // Malformed or null lines are crash fragments; schema problems are not skipped.
+            try
+            {
+                if (JsonSerializer.Deserialize<T>(line, SwarmJson.Compact) is { } record)
+                {
+                    records.Add(record);
+                }
+            }
+            catch (JsonException)
+            {
+                // Skip the fragment.
+            }
+        }
+
+        return records;
     }
 }

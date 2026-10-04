@@ -136,7 +136,7 @@ public sealed class IntegrationWorktree
     {
         ResetTo(epicTip);
         Git.Run("checkout", "-q", "-f", "-B", copyBranch, task.BranchRef);
-        var r = Git.Try("rebase", epicTip);
+        var r = Git.Try("-c", "rebase.updateRefs=false", "rebase", epicTip);
         var output = (r.StdOut + r.StdErr).Trim();
         if (r.ExitCode != 0)
         {

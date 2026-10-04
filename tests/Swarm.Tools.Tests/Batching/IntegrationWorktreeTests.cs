@@ -119,6 +119,25 @@ public class IntegrationWorktreeTests
     }
 
     [Fact]
+    public void RebaseCopy_WithUpdateRefs_NeverMovesWorkerOrSiblingBranches()
+    {
+        var (repo, git, wt) = Setup();
+        using var _ = repo;
+        repo.Git("config", "rebase.updateRefs", "true");
+        repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
+        repo.Branch("task/T2", "task/T1", ("two.txt", "2\n"));
+        var t1 = repo.Sha("task/T1");
+        var t2 = repo.Sha("task/T2");
+        repo.Git("checkout", "-q", "epic/E1");
+        repo.Commit("epic moves", ("other.txt", "o\n"));
+        repo.Git("checkout", "-q", "main");
+        var outcome = wt.RebaseCopy(T("T2", "T1"), git.RevParse("refs/heads/epic/E1"), "rebased/E1/T2");
+        Assert.True(outcome.Clean);
+        Assert.Equal(t2, repo.Sha("task/T2"));
+        Assert.Equal(t1, repo.Sha("task/T1"));
+    }
+
+    [Fact]
     public void RebaseCopy_Conflict_DeletesCopy()
     {
         var (repo, git, wt) = Setup();

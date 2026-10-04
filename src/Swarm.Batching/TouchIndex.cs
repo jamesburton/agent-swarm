@@ -10,12 +10,21 @@ public sealed class TouchIndex(GitRunner repo)
 
     readonly Dictionary<string, IReadOnlySet<string>> touches = new(StringComparer.Ordinal);
 
-    /// <summary>Derives changed files: <c>git diff --name-only from...branch</c> (since the merge base).</summary>
+    /// <summary>Derives changed files: <c>git diff --name-only --no-renames from...branch</c> (since the merge base).</summary>
     /// <param name="fromRef">Usually the epic tip.</param>
     /// <param name="branchRef">The task branch ref.</param>
     /// <returns>Case-insensitive set of repo-relative paths.</returns>
-    public IReadOnlySet<string> Derive(string fromRef, string branchRef) =>
-        repo.Lines("diff", "--name-only", $"{fromRef}...{branchRef}").ToHashSet(StringComparer.OrdinalIgnoreCase);
+    public IReadOnlySet<string> Derive(string fromRef, string branchRef)
+    {
+        // --no-renames: a rename reports both paths. -z: NUL-separated, never C-quoted. Raw stdout (Run would trim a leading space).
+        var r = repo.Try("diff", "--name-only", "--no-renames", "-z", $"{fromRef}...{branchRef}");
+        if (r.ExitCode != 0)
+        {
+            throw new ToolException(ExitCodes.Environment, $"git diff {fromRef}...{branchRef} failed: {TextLines.OneLine(r.StdErr)}");
+        }
+
+        return r.StdOut.TrimEnd('\r', '\n').Split('\0', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>Records a task's files.</summary>
     /// <param name="taskId">Task id.</param>

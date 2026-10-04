@@ -37,4 +37,31 @@ public class TouchIndexTests
         repo.Branch("task/T1", "epic/E1", ("ü.txt", "x\n"));
         Assert.Contains("ü.txt", new TouchIndex(new GitRunner(repo.Root)).Derive("refs/heads/epic/E1", "refs/heads/task/T1"));
     }
+
+    [Fact]
+    public void Rename_ReportsOldAndNewPath()
+    {
+        using var repo = TempRepo.Create();
+        repo.Commit("foo", ("Foo.cs", "class Foo { /* some content to match */ }\n"));
+        repo.Epic();
+        repo.Git("checkout", "-q", "-b", "task/T1", "epic/E1");
+        repo.Git("mv", "Foo.cs", "Bar.cs");
+        repo.Git("commit", "-q", "-m", "rename");
+        repo.Git("checkout", "-q", "main");
+        var touches = new TouchIndex(new GitRunner(repo.Root));
+        var files = touches.Derive("refs/heads/epic/E1", "refs/heads/task/T1");
+        Assert.Equal(new[] { "Bar.cs", "Foo.cs" }, files.Order(StringComparer.Ordinal));
+        touches.Set("T1", files);
+        Assert.Equal(new[] { "T1" }, touches.Partners(["T1"], ["Foo.cs"]));
+    }
+
+    [Fact]
+    public void UnusualNames_AreReturnedVerbatim()
+    {
+        using var repo = TempRepo.Create();
+        repo.Epic();
+        repo.Branch("task/T1", "epic/E1", (" lead ü.txt", "x\n"), ("a b/c d.txt", "y\n"));
+        var files = new TouchIndex(new GitRunner(repo.Root)).Derive("refs/heads/epic/E1", "refs/heads/task/T1");
+        Assert.Equal(new[] { " lead ü.txt", "a b/c d.txt" }, files.Order(StringComparer.Ordinal));
+    }
 }

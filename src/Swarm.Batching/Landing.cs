@@ -38,6 +38,24 @@ public sealed record LandFailure(string TaskId, IReadOnlyList<string> Files, str
 /// <param name="NotAttempted">Every task after the failure, in order.</param>
 public sealed record LandResult(string EpicTipAfter, IReadOnlyList<LandedTask> Landed, LandFailure? Failure, IReadOnlyList<string> NotAttempted);
 
+/// <summary>Compare-and-swap moves of the epic branch, shared by every lander.</summary>
+public static class EpicRef
+{
+    /// <summary>Moves <c>refs/heads/&lt;EpicBranch&gt;</c> from <see cref="LandRequest.EpicTipBefore"/> to <paramref name="newTip"/> in one atomic update.</summary>
+    /// <param name="request">The land request.</param>
+    /// <param name="newTip">The new epic tip.</param>
+    /// <param name="lander">Lander name for the reflog message.</param>
+    /// <exception cref="ToolException">The epic is no longer at <see cref="LandRequest.EpicTipBefore"/> (exit code 4).</exception>
+    public static void Move(LandRequest request, string newTip, string lander)
+    {
+        var r = request.Repo.Try("update-ref", "-m", $"{lander} {request.RunId}: land batch {request.Batch}", GitRunner.HeadsRef(request.EpicBranch), newTip, request.EpicTipBefore);
+        if (r.ExitCode != 0)
+        {
+            throw new ToolException(ExitCodes.Environment, $"epic branch '{request.EpicBranch}' moved during the run; nothing landed for batch {request.Batch}", "another writer updated the epic; re-run");
+        }
+    }
+}
+
 /// <summary>
 /// Lands a green, tested set of tasks on the epic branch. Rules: land in request order and stop at the first failure;
 /// move the epic only from <see cref="LandRequest.EpicTipBefore"/> (compare-and-swap); never touch task branches;
@@ -54,7 +72,7 @@ public interface ILander
     LandResult Land(LandRequest request);
 }
 
-/// <summary>Default lander until Plan B: fast-forwards the epic to the tested integration commit (one merge commit per task).</summary>
+/// <summary>Fast-forwards the epic to the tested integration commit (one merge commit per task); config <c>lander: "fast-forward"</c>.</summary>
 public sealed class FastForwardLander : ILander
 {
     /// <inheritdoc/>
@@ -64,12 +82,7 @@ public sealed class FastForwardLander : ILander
     /// <exception cref="ToolException">The epic moved since the batch started (exit code 4).</exception>
     public LandResult Land(LandRequest request)
     {
-        var r = request.Repo.Try("update-ref", "-m", $"batch {request.RunId}: land batch {request.Batch}", GitRunner.HeadsRef(request.EpicBranch), request.TestedCommit, request.EpicTipBefore);
-        if (r.ExitCode != 0)
-        {
-            throw new ToolException(ExitCodes.Environment, $"epic branch '{request.EpicBranch}' moved during the run; nothing landed for batch {request.Batch}", "another writer updated the epic; re-run batch");
-        }
-
+        EpicRef.Move(request, request.TestedCommit, "batch");
         return new LandResult(request.TestedCommit, request.Tasks.Select(t => new LandedTask(t.Id, request.TestedCommit)).ToList(), null, []);
     }
 }

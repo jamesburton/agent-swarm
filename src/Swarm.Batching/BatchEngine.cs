@@ -106,7 +106,8 @@ public sealed class BatchEngine
     /// <summary>Runs the batch (once per engine).</summary>
     /// <param name="cancellationToken">Stops the run; the summary records exit 4.</param>
     /// <returns>The summary (also written to <c>summary.json</c>).</returns>
-    /// <exception cref="ToolException">Pre-run failure: bad mode/size or path (2), tasks file or epic (3), concurrent run (4).</exception>
+    /// <exception cref="ToolException">Pre-run failure: bad mode/size or path (2), tasks file or epic (3), concurrent run (4).
+    /// Once the run directory exists, every failure (including unexpected exceptions) is recorded in the summary instead.</exception>
     public BatchSummary Run(CancellationToken cancellationToken = default)
     {
         if (started)
@@ -166,6 +167,12 @@ public sealed class BatchEngine
         catch (OperationCanceledException)
         {
             return Finish(wall, ExitCodes.Environment, "cancelled");
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            // A lander bug, a log-write IOException, a process-kill AggregateException: the run still ends with a
+            // summary, so it is never left unfinished (retention and run history depend on summary.json).
+            return Finish(wall, ExitCodes.Environment, $"unexpected failure: {e.GetType().Name}: {TextLines.OneLine(e.Message)}");
         }
     }
 
@@ -362,6 +369,12 @@ public sealed class BatchEngine
         if (!accounted.SequenceEqual(request.Tasks.Select(t => t.Id).Order(StringComparer.Ordinal)))
         {
             throw new ToolException(ExitCodes.Environment, $"lander '{lander.Name}' did not account for every task of batch {request.Batch} exactly once");
+        }
+
+        // NotAttempted only ever follows a failure; otherwise the tasks would be requeued and retested forever.
+        if (result.Failure is null && result.NotAttempted.Count > 0)
+        {
+            throw new ToolException(ExitCodes.Environment, $"lander '{lander.Name}' reported not-attempted tasks without a failure in batch {request.Batch}");
         }
 
         if (result.Failure is null && result.NotAttempted.Count == 0

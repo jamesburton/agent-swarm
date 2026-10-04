@@ -68,3 +68,19 @@ public sealed class ShortLander : ILander
         return new LandResult(target, r.Tasks.Select(t => new LandedTask(t.Id, target)).ToList(), null, []);
     }
 }
+
+/// <summary>Throws a non-<see cref="ToolException"/> from <see cref="Land"/>, like a buggy lander.</summary>
+public sealed class ThrowingLander : ILander
+{
+    public string Name => "throwing";
+
+    public LandResult Land(LandRequest r) => throw new InvalidOperationException("boom");
+}
+
+/// <summary>Violates the lander contract: lands nothing and reports every task not attempted without a failure.</summary>
+public sealed class NothingAttemptedLander : ILander
+{
+    public string Name => "nothing-attempted";
+
+    public LandResult Land(LandRequest r) => new(r.EpicTipBefore, [], null, r.Tasks.Select(t => t.Id).ToList());
+}

@@ -159,4 +159,26 @@ public class BatchEngineTests
         Assert.Equal(ExitCodes.Environment, s.ExitCode);
         Assert.Contains("differs from the tested tree", s.Note);
     }
+
+    [Fact]
+    public void LanderThrowsNonToolException_Exit4_SummaryWritten()
+    {
+        using var repo = Repo();
+        var s = BatchScenario.Run(repo, FourTasks(repo), lander: new ThrowingLander());
+        Assert.Equal(ExitCodes.Environment, s.ExitCode);
+        Assert.Contains("unexpected failure", s.Note);
+        Assert.Contains("boom", s.Note);
+        Assert.True(File.Exists(Path.Combine(repo.StateDir, "runs", s.RunId, "summary.json")));
+        Assert.Contains("\"type\":\"run-end\"", File.ReadAllText(s.EventsFile));
+    }
+
+    [Fact]
+    public void LanderNotAttemptedWithoutFailure_Exit4_NoRequeueLoop()
+    {
+        using var repo = Repo();
+        var s = BatchScenario.Run(repo, FourTasks(repo), lander: new NothingAttemptedLander());
+        Assert.Equal(ExitCodes.Environment, s.ExitCode);
+        Assert.Contains("not-attempted tasks without a failure", s.Note);
+        Assert.Equal(1, s.FullSuiteRuns);
+    }
 }

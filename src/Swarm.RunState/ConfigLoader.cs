@@ -150,6 +150,13 @@ public static class ConfigLoader
             e.Add($"worktreeRoot must be an absolute path (got '{w}')");
         }
 
+        if (c.Lander is not (LanderNames.Squash or LanderNames.FastForward))
+        {
+            e.Add($"lander must be '{LanderNames.Squash}' or '{LanderNames.FastForward}' (got '{c.Lander}')");
+        }
+
+        e.AddRange(SquashConfig.Check(c.Squash));
+
         return e;
     }
 

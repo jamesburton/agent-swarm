@@ -66,6 +66,12 @@ public sealed record SwarmConfig
     /// <summary>Gets how many finished runs are kept under the state dir.</summary>
     public int KeepRuns { get; init; } = 20;
 
+    /// <summary>Gets how batch lands green tasks: <c>squash</c> (default) or <c>fast-forward</c>.</summary>
+    public string Lander { get; init; } = LanderNames.Squash;
+
+    /// <summary>Gets the squash lander settings.</summary>
+    public SquashConfig Squash { get; init; } = new();
+
     /// <summary>Gets the epic branch name.</summary>
     [JsonIgnore]
     public string EpicBranch => EpicBranchTemplate.Replace("{epic}", Epic, StringComparison.Ordinal);

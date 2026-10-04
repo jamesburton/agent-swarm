@@ -56,6 +56,9 @@ public sealed class BatchEngine
     readonly Dictionary<string, TaskSpec> original = new(StringComparer.Ordinal);
     readonly Dictionary<string, int> position = new(StringComparer.Ordinal);
 
+    // Size of each task's ORIGINAL unit: a member of a stack is never auto-rebased, even when only part of it landed (R10).
+    readonly Dictionary<string, int> unitSize = new(StringComparer.Ordinal);
+
     // Units going back to the queue front after the current top-level batch (requeued and rebased copies).
     readonly List<TaskUnit> front = [];
     readonly List<string> landedIds = [];
@@ -149,6 +152,14 @@ public sealed class BatchEngine
         {
             position[t.Id] = original.Count;
             original[t.Id] = t;
+        }
+
+        foreach (var unit in TaskUnits.Build(tasks))
+        {
+            foreach (var id in unit.Ids)
+            {
+                unitSize[id] = unit.Size;
+            }
         }
 
         events.Write(EventTypes.RunStart, new { tasks = tasks.Count, epic = config.Epic, epicBranch, mode = options.Mode, lander = lander.Name });
@@ -423,7 +434,7 @@ public sealed class BatchEngine
         var against = partners.Count > 0 ? string.Join('+', partners) : "the epic tip";
         progress.Info($"  CONFLICT {c.Offender.Id} vs {against} in {string.Join(',', c.Files)} ({stage}): returned to worker");
         events!.Write(EventTypes.Conflict, new { task = c.Offender.Id, stage, batch, files = c.Files, conflictingWith = partners });
-        var single = c.Unit.Size == 1;
+        var single = c.Unit.Size == 1 && unitSize[c.Offender.Id] == 1;
         foreach (var t in c.Unit.Members)
         {
             var offender = t.Id == c.Offender.Id;

@@ -232,4 +232,20 @@ public class BatchReturnsTests
         Assert.Equal(2, lines.Length);
         Assert.All(lines, l => Assert.StartsWith("{\"schemaVersion\":1,", l));
     }
+
+    [Fact]
+    public void PartiallyLandedStack_RemainingMemberIsNeverAutoRebased()
+    {
+        using var repo = TempRepo.Create();
+        repo.Epic();
+        repo.Branch("task/T1", "epic/E1", ("s1.txt", "1\n"));
+        repo.Branch("task/T2", "task/T1", ("s2.txt", "2\n"));
+
+        // The lander lands T1 and fails at T2: what is left of the stack is one task, but it was a stack member (R10).
+        var s = BatchScenario.Run(repo, repo.WriteTasks(new TaskLine("T1", "task/T1"), new TaskLine("T2", "task/T2", ["T1"])), lander: new FailOnceLander("T2"));
+        Assert.Equal(new[] { "T1" }, s.Landed.Select(l => l.Id));
+        var t2 = BatchScenario.Returned(s)["T2"];
+        Assert.Equal((RebaseState.Skipped, FinalState.NeedsWorker), (t2.Rebase, t2.Final));
+        Assert.False(new GitRunner(repo.Root).RefExists(GitRunner.HeadsRef("rebased/E1/T2")));
+    }
 }

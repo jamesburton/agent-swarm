@@ -1,6 +1,6 @@
 ---
 created: 2026-10-03
-updated: 2026-10-04
+updated: 2026-10-05
 status: current
 ---
 
@@ -67,7 +67,7 @@ Each call took 9 to 10 s on a loaded machine (rows 1 to 3); row 4 took 23 s beca
 
 ### Squash and Batch 0.2.0
 
-`Swarm.Squash` 0.1.0 and `Swarm.Batch` 0.2.0 (both NOT REAL placeholder ids, packed with `dotnet pack src/Swarm.Squash.Cli -c Release -o FEED -warnaserror` and the same for `Swarm.Batch.Cli`; each printed the NU5039 missing-readme message) were run on 2026-10-04 the same way as above, in a second scratch repository (an `epic/E1` branch, task branches `task/9933-one` by Ada and `task/9934-two` by Bob). Only these runs were done; no prompt appeared. Timings are as recorded in the task report and were typed by hand into it. Tool reference: [squash-tool.md](squash-tool.md).
+`Swarm.Squash` 0.1.0 and `Swarm.Batch` 0.2.0 (both NOT REAL placeholder ids, packed with `dotnet pack src/Swarm.Squash.Cli -c Release -o FEED -warnaserror` and the same for `Swarm.Batch.Cli`; each printed the NU5039 missing-readme message) were run on 2026-10-04 the same way as above, in a second scratch repository (an `epic/E1` branch, task branches `task/9933-one` by Ada and `task/9934-two` by Bob). Only these runs were done; no prompt appeared. Timings were noted by hand. Tool reference: [squash-tool.md](squash-tool.md).
 
 | # | Command (after `dnx.cmd`) | Observed |
 |---|---------------------------|----------|

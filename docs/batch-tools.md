@@ -1,6 +1,6 @@
 ---
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-05
 status: current
 ---
 # testgate and batch
@@ -67,7 +67,7 @@ Flow:
 7. **Rebase-copy requeue.** A task returned for a conflict is rebased onto the epic tip as a copy branch `rebased/<epic>/<task>` (the worker's branch is never modified) and requeued, up to `maxRebaseAttempts` (default 1). A task that lands this way counts as landed and the run can still exit 0. A copy that conflicts again is `needs-worker`; a copy with nothing left to land is `no-op-after-rebase`. Tasks that are part of a stack in the tasks file are never auto-rebased, even when a lander landed part of the stack.
 8. **Tool-made commits.** Integration merges and rebased copies are committed as `swarm-batch` with signing off (`commit.gpgSign=false`), so a user's signing setup cannot fail them or wait on a pinentry prompt. Integration merges skip the `pre-merge-commit` and `commit-msg` hooks (`--no-verify`). The copy rebase still runs the repository's hooks: a `pre-rebase` rejection is treated like a rebase conflict (`needs-worker`).
 9. **Stacks.** Tasks linked by `dependsOn` land as one unit: they are batched together, never split by bisect, and merged in order.
-10. **Landing.** The lander moves the epic branch from the tip seen at the start of the batch (compare-and-swap), either to new squashed commits whose final tree is the tested tree (`squash`, the default: one trailer-stamped commit per task, see [squash-tool.md](squash-tool.md)) or to the tested integration commit itself (`fast-forward`), so the epic only ever holds tested content. If the epic moved during the run, nothing lands for that batch and the run ends with exit 4.
+10. **Landing.** The lander moves the epic branch from the tip seen at the start of the batch (compare-and-swap), either to new squashed commits whose final tree is the tested tree (`squash`, the default: one trailer-stamped commit per task, see [squash-tool.md](squash-tool.md)) or to the tested integration commit itself (`fast-forward`), so the epic only ever holds tested content. If the epic moved during the run, or git cannot update the epic ref (for example a stale lock file; the error then carries git's reason), nothing lands for that batch and the run ends with exit 4. With `squash.requireTicket`, a task without a ticket makes the squash lander land nothing from its batch; that task is returned (stage `land`) and the others are retested without it (see [squash-tool.md](squash-tool.md#guarantees)).
 
 The epic branch must exist before the run (`git branch epic/E1 main`) and must not be checked out anywhere. Epic creation is not part of this tool.
 
@@ -205,7 +205,7 @@ Every JSON document has `"schemaVersion": 1` (except nested records, which inher
 | 1 | Work came back: the testgate child exited non-zero (its code is in the JSON `exitCode`), or batch returned at least one task. |
 | 2 | Usage or configuration error: unknown option or command, a first command token starting with `-`, missing `--force`, missing `--cwd` directory, invalid config, over-long path, unusable run id, bad `--experimental-fixed`. |
 | 3 | Bad input: not inside a git worktree, invalid or missing tasks file, epic branch missing or checked out. |
-| 4 | Environment failure: git, file system or worktree failure, a command that cannot start, another batch run holds the epic, the epic moved during the run, a lander contract violation, Ctrl+C, or an unexpected internal failure (the batch note starts `unexpected failure: <exception type>:` and `summary.json` is still written). |
+| 4 | Environment failure: git, file system or worktree failure, a command that cannot start, another batch run holds the epic, the epic moved during the run, the epic ref could not be updated (for example a stale lock file), a lander contract violation, Ctrl+C, or an unexpected internal failure (the batch note starts `unexpected failure: <exception type>:` and `summary.json` is still written). |
 | 5 | No test slot became free within `maxWaitSec`. |
 
 When batch ends with an exit code above 1 it also prints `error: <note>` on stderr; the summary line is still printed on stdout. Pre-run failures (exit 2 and 3, and 4 for a concurrent run) print only `error: ...` and no summary. Every error is one line `error: <message> (<hint>)`. `testgate` maps any failed child to exit 1 whatever the child's own code.

@@ -1,13 +1,13 @@
 ---
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-05
 status: current
 ---
 # squash
 
 Lands task branches on an epic branch as one trailer-stamped commit per task (or per ticket inside a stack), with exactly the tree that `batch` tested. It runs in two ways: inside `batch` (the default lander since `Swarm.Batch` 0.2.0) and as the `squash run` command for one branch by hand. Plan: [2026-10-03-squash.md](plans/2026-10-03-squash.md). Decisions: [decisions.md](decisions.md#squash-lander-production-plan-2026-10-04). Companion tools: [batch-tools.md](batch-tools.md).
 
-Written on 2026-10-04 from the source at the end of the squash plan. Each statement was checked by reading the named source or by running the command; anything else is labelled `unverified`. How each was checked is in the plan's Task 8 report.
+Written on 2026-10-04 from the source at the end of the squash plan. Each statement was checked by reading the named source or by running the command; anything else is labelled `unverified`.
 
 ## Package status (NOT REAL)
 
@@ -58,7 +58,7 @@ The trailers are one paragraph at the end in this fixed order (`Source-Commit` f
 - **Grouping.** One commit per task. Inside one stack (tasks linked by `dependsOn`), consecutive members with the same ticket (case-insensitive) share one commit. Separate stacks never share a commit, even with the same ticket, so two independent tasks of one ticket give two commits with the same `Ticket:`.
 - **Stacks.** A stack lands whole or not at all (see [Guarantees](#guarantees)).
 - **Empty tasks.** No empty commits. A task whose merge was a no-op (nothing new) or whose net tree change is zero counts as landed at the commit that already holds it. `squash run` prints `"empty": true` and exits 0.
-- **Identity.** The committer is always the tool identity `swarm-batch`. `squash.author` `original` (default) records the author of the oldest squashed commit and every other distinct author becomes `Co-authored-by`; `tool` records the tool identity and every original author becomes `Co-authored-by`. Dates are "now". Inherited `GIT_AUTHOR_*` and `GIT_COMMITTER_*` variables are removed for the commit. No hooks run and nothing is signed (`commit-tree` runs no hooks; the tool also passes `-c commit.gpgSign=false`).
+- **Identity.** The committer is always the tool identity `swarm-batch`. `squash.author` `original` (default) records the author of the oldest squashed commit with a non-blank author name (the tool identity when there is none, for example when every source commit was already landed) and every other distinct author becomes `Co-authored-by`; `tool` records the tool identity and every original author becomes `Co-authored-by`. Dates are "now". Inherited `GIT_AUTHOR_*` and `GIT_COMMITTER_*` variables are removed for the commit. No hooks run and nothing is signed (`commit-tree` runs no hooks; the tool also passes `-c commit.gpgSign=false`).
 
 ## Guarantees
 
@@ -67,19 +67,20 @@ All verified by reading `SquashLander.cs`, `TreeGuard.cs`, `TestedChain.cs` and 
 - **Tree from the tested chain.** Each commit is built with `git commit-tree <tree of the tested chain after the task's merge> -p <previous tip>`. Nothing is merged twice, nothing is checked out and `merge --squash` is not used. `TestedChain` reads the chain from the tested commit: the tested commit must be the epic tip plus exactly one integration merge per task (subject `batch: merge <id> (<branch>)`); anything else is exit 4 and nothing lands.
 - **Tree check before the ref moves.** `TreeGuard` compares the tree of the rebuilt tip with the tree of `TestedCommit` when nothing failed (or the tree after the last landed task when a task failed). Tree-id equality is the exact form of `git diff --exit-code`. On a mismatch the tool exits 4 with `git diff --stat` in the message and the epic is not moved (the new commits stay unreferenced).
 - **Request-order contract.** The lander requires the request's tasks in the tested chain's order with every stack contiguous. Otherwise it exits 4 (`task 'X' is out of order: its stack is not contiguous in request order ... nothing landed`) rather than credit a task with another's content.
-- **One compare-and-swap.** Whenever the tip changed, one `update-ref <epic> <new tip> <tip before>` moves the epic. If the epic moved meanwhile: exit 4, `epic branch '<b>' moved during the run; nothing landed for batch <n>`.
+- **One compare-and-swap.** Whenever the tip changed, one `update-ref <epic> <new tip> <tip before>` moves the epic. If the epic moved meanwhile: exit 4, `epic branch '<b>' moved during the run; nothing landed for batch <n>`. If `update-ref` fails while the epic is still at the expected tip (for example a stale lock file), the error carries git's reason instead: exit 4, `could not move epic branch '<b>': <git's message on one line>; nothing landed for batch <n>`, with a hint to remove a stale lock file when no other git process is running (`EpicRefLocked_ReportsGitsReasonNotAMove`, `FastForwardLander_LockedEpicRef_ReportsGitsReason`).
 - **Task branches are never modified** and no refs are created.
-- **Stop at the first failure; a stack lands nothing.** Tasks land in request order. At the first failing task the failure is reported, every other member of that task's stack and every later task is reported as not attempted, and the epic moves only to what landed before the failing stack. `batch` returns the failed task for a worker (stage `land`) and lands the rest.
-- **No-op tasks.** Counted as landed without a commit.
+- **A ticket failure lands nothing.** Only the whole chain was tested, so the lander never lands a prefix of it for a missing ticket: with `requireTicket`, every task that needs a commit has its ticket resolved before anything is built, and if one has none, nothing lands. That task is the failure and every other task of the request is reported as not attempted; the epic does not move. `batch` returns the failed task (and its stack) for a worker (stage `land`) and retests the others without it before they land (`Engine_RequireTicket_EpicOnlyEverHoldsGreenTestedTrees`).
+- **A stack lands whole or not at all.** Tasks land in request order. If a task fails while its unit is being built, every other member of its stack and every later task is reported as not attempted, and the epic moves only to what landed before the failing stack (that tree is checked by `TreeGuard`).
+- **No-op tasks.** Counted as landed without a commit, and need no ticket.
 - **`requireTicket`.** See [Tickets](#tickets).
 
 ## Tickets
 
 Resolution order for each task (`TicketResolver`):
 
-1. The explicit `--ticket` (`squash run` only), trimmed. The CLI requires it to be one token without whitespace or control characters (exit 2).
+1. The explicit `--ticket` (`squash run` only), trimmed. The CLI requires it to be one token without whitespace (including tab) or control characters (exit 2).
 2. The first match of `squash.ticketPattern` (named group `ticket`) on the branch name, then on the task id.
-3. The task id, unless `squash.requireTicket` is true; then the task fails to land with `no ticket for task '<id>' (branch '<b>'): squash.ticketPattern '<p>' matches neither and squash.requireTicket is true`. A match counts only when the group is non-empty and has no whitespace or control characters.
+3. The task id, unless `squash.requireTicket` is true; then a task that needs a commit makes the whole land fail with `no ticket for task '<id>' (branch '<b>'): squash.ticketPattern '<p>' matches neither and squash.requireTicket is true; nothing landed from this batch` (see [Guarantees](#guarantees)). A match counts only when the group is non-empty and has no whitespace (including tab) or control characters.
 
 The default pattern is `(?:^|/)(?<ticket>\d+)(?:-|$)`. Examples from `TicketResolverTests` (branch, task id, ticket):
 
@@ -94,7 +95,7 @@ The default pattern is `(?:^|/)(?<ticket>\d+)(?:-|$)`. Examples from `TicketReso
 
 A non-numeric ticket needs a configured pattern, for example `(?<ticket>[A-Z]+-\d+)` gives `ABC-12` for `task/ABC-12-fix`. A pattern that takes over one second on an input fails with `squash.ticketPattern timed out on '<input>'` (exit 2).
 
-**`requireTicket` and no-op tasks (for the human to decide).** The ticket check runs before the empty check. Under `requireTicket: true`, a task without a derivable ticket therefore fails its whole stack even when its merge was a no-op and nothing would have been committed. `batch` then returns that task for a worker for no content. The alternative, checking for emptiness first, would let a ticket-less no-op task land silently. Which behaviour is wanted has not been decided; the code does the former (`SquashLander.LandUnit`) and no test pins the no-op case. Leave `requireTicket` off if this matters.
+**`requireTicket` and no-op tasks.** A task whose merge changed nothing needs no ticket: the empty check runs before the ticket check, and no commit is made for it, so no ticket-less commit can reach the epic (Ruling B3-final; `RequireTicket_TicketlessNoOpTask_LandsEmpty`). With `squash run`, such a task exits 0 with `"empty": true` and `"ticket": null`.
 
 **Rebased copies.** When `batch` lands a task through its rebase copy `rebased/<epic>/<task id>`, the copy's name no longer holds the ticket. The lander reads the copy's reflog (`git reflog show --format=%gs refs/heads/<copy>`) and takes the first line starting `branch: Created from refs/heads/` or `branch: Reset to refs/heads/`; the rest is the worker branch used for the ticket. Observed with git 2.54 on Windows: newest first, `rebase (finish): ...` then one of those two lines (`RebasedCopy_KeepsWorkerBranchTicket` passes). If the reflog has no such line (for example `core.logAllRefUpdates=false`), the copy's own name is used, so the ticket falls back to the task id or fails under `requireTicket`. That fallback was read in the source and not run.
 
@@ -110,7 +111,7 @@ Both `batch` (when it lands) and `squash run` read the shared `.swarm/batch.json
 | `squash.subjectTemplate` | `{ticket}: {title}` | one non-empty line; placeholders `{ticket} {title} {taskId} {taskIds} {branch} {epic} {batch} {runId}`; `{taskIds}` joins ids with `+` |
 | `squash.author` | `"original"` | `"original"` or `"tool"` |
 
-Old files without the new keys stay valid (`OldFileWithoutNewKeys_StillValid`). `baseBranch` (default `main`) is also used here: it bounds the epic history scanned for already-landed `Source-Commit:` trailers (`<baseBranch>..<epic>`, first-parent). Example:
+Old files without the new keys stay valid (`OldFileWithoutNewKeys_StillValid`). `baseBranch` (default `main`) is also used here: it bounds the epic history scanned for already-landed `Source-Commit:` trailers (`<baseBranch>..<epic>`, first-parent). When the `baseBranch` branch does not exist, the whole first-parent history of the epic is scanned. Example:
 
 ```json
 {
@@ -147,9 +148,9 @@ squash run --task ID --branch BRANCH [--epic ID] [--ticket TICKET] [--run-id ID]
 squash --version
 ```
 
-(Usage lines from `--help` of the built tool.) `--task` and `--branch` are required; `--task` is a safe name (letters, digits, `_`, `-`, single dots), `--branch` a valid branch name that must exist and is never modified. `--epic` defaults to the config `epic`; the epic branch (`epicBranchTemplate`) must exist and must not be checked out in any worktree. `--run-id` defaults to `squash-<yyyyMMdd-HHmmss-fff>-<epic>`. `--slots` and `--max-wait` are accepted but do not affect the epic lock (read from source: the lock is taken for one slot without waiting).
+(A summary of `squash run --help`, not its verbatim output.) `--task` and `--branch` are required; `--task` is a safe name (letters, digits, `_`, `-`, single dots), `--branch` a valid branch name that must exist and is never modified. `--epic` defaults to the config `epic`; the epic branch (`epicBranchTemplate`) must exist and must not be checked out in any worktree. `--run-id` defaults to `squash-<yyyyMMdd-HHmmss-fff>-<epic>`. `--slots` and `--max-wait` are accepted but do not affect the epic lock (read from source: the lock is taken for one slot without waiting).
 
-What it does: takes the epic lock, creates (or reuses) the integration worktree `<worktreeRoot>/int-<epic>`, merges the branch onto the epic tip there, and calls the same `SquashLander` as `batch`, with `Batch: 0`. There is no test run: the tree it lands is the tree of that one merge. Progress goes to stderr. On exit 0 or 1 stdout is exactly one JSON line, `SquashRunResult`; on exits 2 to 4 stdout is empty and stderr carries one `error: <what> (<hint>)` line (every `ToolException` is handled by `ToolErrors.Handle`, which writes only that line; run with a missing branch: exit 3, stdout empty, stderr `error: task branch 'nosuch' not found`):
+What it does: takes the epic lock, creates (or reuses) the integration worktree `<worktreeRoot>/int-<epic>`, merges the branch onto the epic tip there, and calls the same `SquashLander` as `batch`, with `Batch: 0`. There is no test run: the tree it lands is the tree of that one merge. Progress goes to stderr. Afterwards the integration worktree is reset to the epic; if that reset fails (for example a file held open on Windows), stderr gets one `warning: could not reset the integration worktree <path>: ...` line and the exit code and JSON line are those of the land (the next run cleans the worktree); when the run already failed, its own error is the one reported. On exit 0 or 1 stdout is exactly one JSON line, `SquashRunResult`; on exits 2 to 4 stdout is empty and stderr carries one `error: <what> (<hint>)` line (every `ToolException` is handled by `ToolErrors.Handle`, which writes only that line; run with a missing branch: exit 3, stdout empty, stderr `error: task branch 'nosuch' not found`):
 
 `schemaVersion`, `runId`, `task`, `branch`, `epic`, `epicBranch`, `epicTipBefore`, `epicTipAfter`, `ticket` (null when nothing landed), `commit` (null when nothing landed or empty), `empty`, `exitCode`, `note` (why nothing landed, or null).
 
@@ -159,7 +160,7 @@ What it does: takes the epic lock, creates (or reuses) the integration worktree 
 | 1 | Merge conflict with the epic tip (nothing lands, `note` names the files), or a land failure such as `requireTicket` with no ticket |
 | 2 | Usage or config: no or unknown command, missing `--task`/`--branch`, bad `--task`/`--ticket`/`--branch`/run id, invalid config, ticket pattern timeout |
 | 3 | Bad input: not in a git worktree, task branch not found, epic branch missing or checked out |
-| 4 | Environment: epic lock held, epic moved during the run (also after an empty run), tree mismatch, chain error, git failure |
+| 4 | Environment: epic lock held, epic moved during the run (also after an empty run; hint `another writer updated the epic; re-run squash run`), epic ref could not be updated (stale lock), tree mismatch, chain error, git failure |
 | 5 | Defined for a testgate wait timeout; `squash run` takes no test slot and does not produce it (`unverified` at runtime) |
 
 **Shared epic lock.** `squash run` and `batch` use the same per-epic lock `<state>/locks/batch-<epic>` and the same integration worktree, so they never run on one epic at once. A held lock is exit 4: from `squash run` the message is `another batch or squash run holds epic '<epic>'`; from `batch` it is `another batch run holds epic '<epic>'` even when the holder is a `squash run` (the wording is from the batch code and says only "batch").
@@ -176,15 +177,15 @@ Run record (Windows 11, .NET 10, `dnx.cmd` with a local feed, on 2026-10-04; ful
 
 ## Known limitations
 
-From the review ledger (deferred minors that affect users); none has a fix in this plan.
+From the review ledger: deferred minors that affect users and were not fixed in this plan.
 
 - **Ticket override.** The lander API only trims an explicit ticket. `squash run` validates `--ticket` (one token, no whitespace or control characters), so this matters only to code that calls `SquashLander` directly.
 - **Co-author truncation.** Each trailer value is cut to 400 characters. A very long `Co-authored-by` can lose the end of its email. A name containing `<` or `>` is not sanitised. Co-authors are de-duplicated by email, so authors with an empty email collapse into one.
-- **Stale git error text.** `EpicRef.Move` drops git's stderr: any failure of the compare-and-swap (for example `cannot lock ref`) is reported as `moved during the run`.
+- **Ticket failures in `batch`.** A task without a ticket under `requireTicket` is found only when its batch lands (there is no check before the run). `batch` records it in `returned.jsonl` as `kind: conflict`, `stage: land`, reason `land conflict with the epic tip`, `files: []`, with the real reason in `gitOutput`; a single task then gets one automatic rebase and retest that fails the same way before it becomes `needs-worker`. The other tasks of that batch are retested without it, costing one extra suite run.
 - **Lock wording.** `batch` says `another batch run holds epic` when a `squash run` holds the lock.
 - **Stacked on a rebased copy.** A branch stacked on one that `batch` landed through a rebased copy records the copy's commit in `Source-Commit:`, so the original commits are not recognised as already landed. Its author and `Squashed commits:` list can then include them.
 - **Missing task branch in the chain.** A task branch that vanishes between testing and landing is reported as `not contained` without distinguishing a missing branch from other git failures.
-- **Squash section echoes.** Config errors echo the raw `ticketPattern`/`author` value; `{task1}`-style placeholders with digits are not recognised as placeholders and are expanded literally (unknown letters-only names are rejected).
+- **Squash section echoes.** Config errors echo the raw `ticketPattern`/`author` value; `{task1}`-style placeholders with digits are not recognised as placeholders and are left unchanged in the subject (unknown letters-only names are rejected).
 - **Config hint.** Config errors from the squash keys point at `batch-tools.md#configuration`.
-- **Not run.** `unverified`: non-ASCII author names and subjects end to end, a repository using `core.logAllRefUpdates=false`, and the `requireTicket` plus no-op case above.
+- **Not run.** `unverified`: non-ASCII author names and subjects end to end, and a repository using `core.logAllRefUpdates=false`.
 - **Out of scope.** Merging the epic into the active branch, changing the renderer sample's `tool:squash` step, commit signing, and publishing.

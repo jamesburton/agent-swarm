@@ -103,6 +103,19 @@ public sealed class TempRepo : IDisposable
     /// <param name="name">Epic branch name.</param>
     public void Epic(string from = "main", string name = "epic/E1") => Git("branch", name, from);
 
+    /// <summary>Leaves a stale lock file that makes every <c>update-ref</c> of <paramref name="branch"/> fail.</summary>
+    /// <param name="branch">Branch name.</param>
+    /// <returns>The lock file path (per-ref with the files backend, the table list with reftable).</returns>
+    public string LockRef(string branch)
+    {
+        var gitDir = Git("rev-parse", "--absolute-git-dir");
+        var path = Git("rev-parse", "--show-ref-format") == "reftable"
+            ? Path.Combine(gitDir, "reftable", "tables.list.lock")
+            : Path.Combine(gitDir, "refs", "heads", branch + ".lock");
+        File.WriteAllText(path, "");
+        return path;
+    }
+
     /// <summary>Resolves a revision to its sha.</summary>
     /// <param name="rev">Any git revision.</param>
     /// <returns>The full sha.</returns>

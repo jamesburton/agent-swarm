@@ -183,6 +183,23 @@ public class SquashLanderTests
     }
 
     [Fact]
+    public void EpicRefLocked_ReportsGitsReasonNotAMove()
+    {
+        using var repo = Repo();
+        repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
+        var request = Tested(repo, Worktree(repo), T("T1"));
+        repo.LockRef("epic/E1");
+        var e = Assert.Throws<ToolException>(() => Land(request));
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("could not move epic branch 'epic/E1': ", e.Message);
+        Assert.Contains("cannot lock", e.Message);
+        Assert.DoesNotContain("moved during the run", e.Message);
+        Assert.DoesNotContain('\n', e.Message);
+        Assert.Contains(".lock", e.Hint);
+        Assert.Equal(request.EpicTipBefore, repo.Sha("epic/E1"));
+    }
+
+    [Fact]
     public void NonAsciiAuthorAndSubject_RoundTrip()
     {
         using var repo = Repo();

@@ -240,4 +240,22 @@ public class IntegrationWorktreeTests
         var e = Assert.Throws<ToolException>(() => new FastForwardLander().Land(request));
         Assert.Contains("moved during the run", e.Message);
     }
+
+    [Fact]
+    public void FastForwardLander_LockedEpicRef_ReportsGitsReason()
+    {
+        var (repo, git, wt) = Setup();
+        using var _ = repo;
+        repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
+        var tip = git.RevParse("refs/heads/epic/E1");
+        var head = wt.Integrate(tip, TaskUnits.Build([T("T1")])).Head;
+        var request = new LandRequest(git, wt.Git, "E1", "epic/E1", tip, head, [new LandTask("T1", "task/T1", [])], 1, "run1");
+        repo.LockRef("epic/E1");
+        var e = Assert.Throws<ToolException>(() => new FastForwardLander().Land(request));
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.StartsWith("could not move epic branch 'epic/E1': ", e.Message);
+        Assert.EndsWith("; nothing landed for batch 1", e.Message);
+        Assert.Contains(".lock", e.Hint);
+        Assert.Equal(tip, git.RevParse("refs/heads/epic/E1"));
+    }
 }

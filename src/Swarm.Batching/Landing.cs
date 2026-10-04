@@ -45,14 +45,27 @@ public static class EpicRef
     /// <param name="request">The land request.</param>
     /// <param name="newTip">The new epic tip.</param>
     /// <param name="lander">Lander name for the reflog message.</param>
-    /// <exception cref="ToolException">The epic is no longer at <see cref="LandRequest.EpicTipBefore"/> (exit code 4).</exception>
+    /// <exception cref="ToolException">The epic is no longer at <see cref="LandRequest.EpicTipBefore"/>, or git could not update the ref (e.g. a stale lock file) (exit code 4).</exception>
     public static void Move(LandRequest request, string newTip, string lander)
     {
-        var r = request.Repo.Try("update-ref", "-m", $"{lander} {request.RunId}: land batch {request.Batch}", GitRunner.HeadsRef(request.EpicBranch), newTip, request.EpicTipBefore);
-        if (r.ExitCode != 0)
+        var epicRef = GitRunner.HeadsRef(request.EpicBranch);
+        var r = request.Repo.Try("update-ref", "-m", $"{lander} {request.RunId}: land batch {request.Batch}", epicRef, newTip, request.EpicTipBefore);
+        if (r.ExitCode == 0)
         {
-            throw new ToolException(ExitCodes.Environment, $"epic branch '{request.EpicBranch}' moved during the run; nothing landed for batch {request.Batch}", "another writer updated the epic; re-run");
+            return;
         }
+
+        // update-ref also fails when the ref cannot be locked; only a changed tip means another writer moved it.
+        var now = request.Repo.Try("rev-parse", "--verify", "-q", epicRef).StdOut.Trim();
+        if (string.Equals(now, request.EpicTipBefore, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ToolException(
+                ExitCodes.Environment,
+                $"could not move epic branch '{request.EpicBranch}': {TextLines.OneLine(r.StdErr)}; nothing landed for batch {request.Batch}",
+                "if no other git process is running, remove the stale lock file git names (refs/heads/<branch>.lock, or reftable/tables.list.lock) and re-run");
+        }
+
+        throw new ToolException(ExitCodes.Environment, $"epic branch '{request.EpicBranch}' moved during the run; nothing landed for batch {request.Batch}", "another writer updated the epic; re-run");
     }
 }
 

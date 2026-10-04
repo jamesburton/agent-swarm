@@ -54,7 +54,7 @@ dnx extracts packages to `~/.nuget/packages/<id>/<version>` (here `~/.nuget/pack
 
 ## Companion tools
 
-`Swarm.TestGate` and `Swarm.Batch` (both NOT REAL placeholder ids, version 0.1.1, packed with `dotnet pack -c Release -o FEED` into a local feed) were run through `dnx.cmd` in Git Bash with `--add-source FEED`, no `--yes`, on 2026-10-04. Only these runs were done; PowerShell and a published feed were not tried. Tool reference: [batch-tools.md](batch-tools.md).
+`Swarm.TestGate` and `Swarm.Batch` (both NOT REAL placeholder ids, version 0.1.1, packed with `dotnet pack -c Release -o FEED` into a local feed) were run through `dnx.cmd` in Git Bash with `--add-source FEED`, no `--yes`, on 2026-10-04, inside a scratch repository whose `.swarm/batch.json` set `"slots": 1` and `"testCommand": ["git", "--version"]` (so the batch suite is trivially green). Only these runs were done; PowerShell and a published feed were not tried. Tool reference: [batch-tools.md](batch-tools.md).
 
 | # | Command (after `dnx.cmd`) | Observed |
 |---|---------------------------|----------|
@@ -63,4 +63,4 @@ dnx extracts packages to `~/.nuget/packages/<id>/<version>` (here `~/.nuget/pack
 | 3 | `Swarm.TestGate@0.1.1 --add-source FEED -- status` | `{"schemaVersion":1,...,"slots":1,"holders":[]}`, exit 0 (9 s) |
 | 4 | `Swarm.Batch@0.1.1 --add-source FEED -- run ../smoke-a-tasks.json` (scratch repo with an `epic/E1` branch and one task branch) | stderr progress, one summary line with `"tasksLanded":1,"exitCode":0`, exit 0 (23 s including first-run extraction); `git show epic/E1:one.txt` printed `one` |
 
-Each call took about 9 s on a loaded machine. Both tools were bumped to 0.1.1 so a stale `~/.nuget/packages/<id>/<version>` cache could never serve old code (see the stale-cache gotcha above). Packing prints warning NU5039 (no readme); no metadata was added.
+Each call took 9 to 10 s on a loaded machine (rows 1 to 3); row 4 took 23 s because it included the first extraction of the `Swarm.Batch` package and the batch run itself. Both tools were bumped to 0.1.1 so a stale `~/.nuget/packages/<id>/<version>` cache could never serve old code (see the stale-cache gotcha above). Packing prints warning NU5039 (no readme); no metadata was added.

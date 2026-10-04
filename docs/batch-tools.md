@@ -30,7 +30,7 @@ testgate reclaim --force [--config FILE] [--state DIR] [--slots N] [--max-wait S
 testgate --version
 ```
 
-- `run` waits for a free slot, runs the command in `--cwd` (default: current directory), releases the slot and prints exactly one JSON line (`GateResult`, see [Outputs](#outputs)) on stdout. Progress and the child's output go to stderr: testgate shows the child's output at the default `normal` verbosity and `--verbosity quiet` hides it (`batch` shows suite output on stderr only at `detail`). With no command after `--` it runs the config `testCommand` (default `dotnet test`). `--label` defaults to `testgate`. A first command token that starts with `-` is rejected as usage (exit 2): put the command after `--`.
+- `run` waits for a free slot, runs the command in `--cwd` (default: current directory), releases the slot and prints exactly one JSON line (`GateResult`, see [Outputs](#outputs)) on stdout. Progress and the child's output go to stderr: testgate shows the child's output at the default `normal` verbosity and `--verbosity quiet` hides it (`batch` shows suite output on stderr only at `detail`). With no command after `--` it runs the config `testCommand` (default `dotnet test`). `--label` defaults to `testgate`. Any first command token that starts with `-` (including one that comes from `testCommand`) is rejected as usage (exit 2): put the command after `--`. A `--cwd` directory that does not exist is also exit 2.
 - `status` prints one `GateStatus` line: the lock directory, the slot count and one entry per lock file (pid, host, command, heartbeat age, `stale`, `holderAlive`).
 - `reclaim` without `--force` is a usage error (exit 2, `reclaim deletes lock files (pass --force to confirm)`). With `--force` it deletes stale locks and locks of dead local holders, and prints a `ReclaimReport` (`reclaimed` and `skippedLive` slot lists). It never deletes the lock of a live local holder.
 
@@ -63,7 +63,7 @@ Flow:
 3. **Integration worktree** `<worktreeRoot>/int-<epic>`, detached at the epic tip. `worktreeRoot` defaults to a sibling of the main worktree named `<repo>-wt`. An existing worktree is reused and cleaned (see [Windows notes](#windows-notes)).
 4. **Touch sets** are derived from git (the files each task changes against the epic tip) and used as a pre-batching hint: tasks that touch the same files are kept in separate batches. `--experimental-no-prebatch` or `"prebatch": false` turns that off.
 5. **Batches.** The first batch has `start` tasks; the size then adapts within `min`..`max`. A batch merges its tasks into the integration worktree one at a time, in tasks-file order (`merge --no-ff`), and a task (or stack) that conflicts is rolled back (`merge --abort`) and returned (stage `merge`); the other tasks of the batch still merge and are tested. The full suite then runs once for the merged state, under a test slot, using config `testCommand` in the integration worktree.
-6. **Green** batches are landed through the lander. **Red** batches are split in halves and each half is tested again (bisect), reusing a result by inference when one half is green (the other is then known red without a run). A single task that is red is returned as `red`; when two tasks interact, the later task in queue order is blamed (a convention, not true attribution). `--mode serial` runs one task per suite (the baseline).
+6. **Green** batches are landed through the lander. **Red** batches are split in halves and each half is tested again (bisect), reusing a result by inference when the left half is green and lands cleanly (the right half is then known red without a run). A single task that is red is returned as `red`; when two tasks interact, the later task in queue order is blamed (a convention, not true attribution). `--mode serial` runs one task per suite (the baseline).
 7. **Rebase-copy requeue.** A task returned for a conflict is rebased onto the epic tip as a copy branch `rebased/<epic>/<task>` (the worker's branch is never modified) and requeued, up to `maxRebaseAttempts` (default 1). A task that lands this way counts as landed and the run can still exit 0. A copy that conflicts again is `needs-worker`; a copy with nothing left to land is `no-op-after-rebase`. Tasks that are part of a stack are not auto-rebased.
 8. **Stacks.** Tasks linked by `dependsOn` land as one unit: they are batched together, never split by bisect, and merged in order.
 9. **Landing.** The lander moves the epic branch from the tip seen at the start of the batch to the tested commit (compare-and-swap), so the epic only ever holds tested content. If the epic moved during the run, nothing lands for that batch and the run ends with exit 4.
@@ -133,7 +133,7 @@ Errors exit 3, are one line and end with `(see docs/batch-tools.md#tasks-file)`.
 
 ## Configuration
 
-Both tools read one shared file. Lookup order: command-line flags win over the file; the file is `--config FILE` if given (a missing explicit file is exit 2), otherwise `<main worktree>/.swarm/batch.json` if it exists, otherwise the defaults. "Main worktree" is found through `git rev-parse --git-common-dir`, so every linked worktree shares one config and one state directory. Unknown keys, `null` values and wrong types are errors; comments and trailing commas are allowed. Every error exits 2 with one line `<source>: <message> (see docs/batch-tools.md#configuration)`; the first failing rule is reported.
+Both tools read one shared file. Lookup order: command-line flags win over the file; the file is `--config FILE` if given (a missing explicit file is exit 2), otherwise `<main worktree>/.swarm/batch.json` if it exists, otherwise the defaults. "Main worktree" is found through `git rev-parse --git-common-dir`, so every linked worktree shares one config and one state directory. Unknown keys, `null` values (except `worktreeRoot`) and wrong types are errors; comments and trailing commas are allowed. Every error exits 2 with one line `<source>: <message> (see docs/batch-tools.md#configuration)`; the first failing rule is reported.
 
 ```json
 {
@@ -175,7 +175,7 @@ Every JSON document has `"schemaVersion": 1` (except nested records, which inher
 
 **`testgate reclaim --force` stdout, `ReclaimReport`**: `schemaVersion`, `reclaimed[]`, `skippedLive[]`.
 
-**`batch run` stdout and `<run>/summary.json`, `BatchSummary`**: `schemaVersion`, `runId`, `epic`, `epicBranch`, `mode`, `lander`, `exitCode`, `note` (why the run stopped early, or `empty batch`), `tasks`, `tasksLanded`, `returned`, `rebasedAndLanded`, `needsWorker`, `rejectedRed`, `badInput`, `unprocessed[]` (tasks neither landed nor returned because the run stopped), `fullSuiteRuns`, `bisectRuns`, `inferredRedSkipped`, `batches`, `sizeTrace[]`, `wallSeconds`, `waitMs`, `runMs`, `suites[]` (`{ gate, logFile, tasks }`), `landed[]` (`{ id, batch, commit, branch }`), `batchLog[]` (`{ batch, bisect, tasks, result }`), `derivedTouches` (task id to files), `returnedFile`, `eventsFile`. `summary.json` is written last and marks a run as finished (unfinished runs are never pruned).
+**`batch run` stdout and `<run>/summary.json`, `BatchSummary`**: `schemaVersion`, `runId`, `epic`, `epicBranch`, `mode`, `lander`, `exitCode`, `note` (why the run stopped early, or `empty batch`), `tasks`, `tasksLanded`, `returned`, `rebasedAndLanded`, `needsWorker`, `rejectedRed`, `badInput`, `unprocessed[]` (tasks neither landed nor returned because the run stopped), `fullSuiteRuns`, `bisectRuns`, `inferredRedSkipped`, `batches`, `sizeTrace[]`, `wallSeconds`, `waitMs`, `runMs`, `suites[]` (`{ gate, logFile, tasks }`), `landed[]` (`{ id, batch, commit, branch }`), `batchLog[]` (`{ batch, bisect, tasks, result }`), `derivedTouches` (task id to files), `returnedFile`, `eventsFile`. `summary.json` is written last (only the `run-end` event follows it) and marks a run as finished (unfinished runs are never pruned).
 
 **`<run>/returned.jsonl`**: append-only, one full snapshot of a task's return record per line; **the last line per task wins**. A line that cannot be parsed (a crash left a fragment) is skipped when reading. Fields: `schemaVersion`, `utc`, `runId`, `task`, `branch` (the worker's branch, never modified), `kind`, `stage`, `batch` (0 = preflight), `conflictingWith[]` (task ids that overlap the conflicting files; empty = the epic tip), `files[]`, `reason`, `gitOutput`, `rebase`, `rebasedBranch`, `rebaseOutput`, `final`.
 
@@ -198,7 +198,7 @@ Every JSON document has `"schemaVersion": 1` (except nested records, which inher
 |---|---|
 | 0 | Success: testgate child exited 0; batch landed every task, including tasks landed after an automatic rebase (also an empty tasks file). |
 | 1 | Work came back: the testgate child exited non-zero (its code is in the JSON `exitCode`), or batch returned at least one task. |
-| 2 | Usage or configuration error: unknown option or command, missing `--force`, invalid config, over-long path, unusable run id, bad `--experimental-fixed`. |
+| 2 | Usage or configuration error: unknown option or command, a first command token starting with `-`, missing `--force`, missing `--cwd` directory, invalid config, over-long path, unusable run id, bad `--experimental-fixed`. |
 | 3 | Bad input: not inside a git worktree, invalid or missing tasks file, epic branch missing or checked out. |
 | 4 | Environment failure: git, file system or worktree failure, a command that cannot start, another batch run holds the epic, the epic moved during the run, a lander contract violation, Ctrl+C. |
 | 5 | No test slot became free within `maxWaitSec`. |
@@ -212,13 +212,13 @@ When batch ends with an exit code above 1 it also prints `error: <note>` on stde
 - **Process-tree kill.** A cancelled command is killed with its whole process tree. After the main process exits, output pipes are drained for a grace period (5 s); a descendant that keeps the pipe open cannot hang the run.
 - **Crash leftovers.** On reuse, the integration worktree is cleaned before the next batch: stale `index.lock`/`HEAD.lock` files are deleted, an unfinished merge or rebase is aborted, and it is force-checked-out detached at the epic tip with untracked files removed (ignored build output is kept so builds stay warm). Only this tool uses that worktree and only one batch run per epic holds it.
 - **`.cmd` shims.** A bare command name is resolved on `PATH` with `PATHEXT`, so `npm` finds `npm.cmd`.
-- **Working directory encoding.** Child output is decoded as UTF-8.
+- **Output encoding.** Child output is decoded as UTF-8.
 
 ## Known limitations
 
 - Orphans can escape the tree kill: a descendant that detaches from the process tree (or is started outside it) survives a cancel or kill. A Job Object is the likely fix and is not built.
 - Heartbeat failures are swallowed silently: a live local holder whose heartbeat stopped keeps its slot until it exits; other hosts reclaim it after `expirySec`.
-- A failed, cancelled or timed-out `testgate run` leaves no entry in `testgate.events.jsonl`, and Ctrl+C arriving just as the child exits can be reported as a child failure (exit 1) instead of 4.
+- A `testgate run` that fails to start, times out waiting or is cancelled leaves no entry in `testgate.events.jsonl`, and Ctrl+C arriving just as the child exits can be reported as a child failure (exit 1) instead of 4.
 - A partially landed stack by a future lander can be auto-rebased as a multi-task unit; this matters for the squash lander plan.
 - The full `Swarm.Tools.Tests` suite takes about 13 to 15 minutes on Windows (most of it git and `dotnet` process starts). It is not hung; run a focused `--filter` while iterating.
 - A few timing tests are sensitive to a busy machine; re-run a single failure alone before treating it as a regression.

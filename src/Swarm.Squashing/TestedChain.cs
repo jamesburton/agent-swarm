@@ -52,7 +52,13 @@ public static class TestedChain
             }
             else
             {
-                // "Already up to date": the branch added nothing, so the integration made no merge commit for it.
+                // No merge commit is legitimate only for an "Already up to date" merge, i.e. the branch is already
+                // contained in the integration state; anything else means the task never reached the tested commit.
+                if (git.Try("merge-base", "--is-ancestor", GitRunner.HeadsRef(task.Branch), state).ExitCode != 0)
+                {
+                    throw Violation(request, $"task '{task.Id}' has no merge in the tested chain and its branch is not contained in {state[..Math.Min(state.Length, 12)]}");
+                }
+
                 links.Add(new ChainLink(task, state, state, tree, null));
             }
         }

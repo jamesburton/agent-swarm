@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\Swarm.Tooling.props" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>testgate</ToolCommandName>
+    <PackageId>Swarm.TestGate</PackageId>
+    <Version>0.1.0</Version>
+    <Description>NOT REAL placeholder package id (unclaimed on nuget.org). Machine-wide test-slot gate for agent swarms.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Swarm.Git\Swarm.Git.csproj" />
+    <ProjectReference Include="..\Swarm.RunState\Swarm.RunState.csproj" />
+    <ProjectReference Include="..\Swarm.Gate\Swarm.Gate.csproj" />
+  </ItemGroup>
+</Project>

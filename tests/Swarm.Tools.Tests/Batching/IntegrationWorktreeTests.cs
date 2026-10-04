@@ -66,6 +66,54 @@ public class IntegrationWorktreeTests
         Assert.False(repo.HasFile(r.Head, "s1.txt"));
     }
 
+    // The user's repo signs every commit with a broken gpg and rejects every commit message and merge commit.
+    static void BreakUserCommits(TempRepo repo)
+    {
+        repo.Git("config", "commit.gpgSign", "true");
+        repo.Git("config", "gpg.program", "swarm-no-such-gpg");
+        var hooks = Path.Combine(repo.Sandbox, "hooks");
+        Directory.CreateDirectory(hooks);
+        foreach (var name in new[] { "commit-msg", "pre-merge-commit" })
+        {
+            File.WriteAllText(Path.Combine(hooks, name), "#!/bin/sh\necho rejected by test hook >&2\nexit 1\n");
+        }
+
+        repo.Git("config", "core.hooksPath", hooks.Replace('\\', '/'));
+
+        // Sanity: both the signing and the hooks really fail an ordinary commit.
+        var user = new GitRunner(repo.Root);
+        Assert.NotEqual(0, user.Try("commit", "-q", "--allow-empty", "-m", "user commit").ExitCode);
+        Assert.Contains("rejected by test hook", user.Try("-c", "commit.gpgSign=false", "commit", "-q", "--allow-empty", "-m", "user commit").StdErr);
+    }
+
+    [Fact]
+    public void Integrate_IgnoresUserSigningAndCommitHooks()
+    {
+        var (repo, git, wt) = Setup();
+        using var _ = repo;
+        repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
+        BreakUserCommits(repo);
+        var r = wt.Integrate(git.RevParse("refs/heads/epic/E1"), TaskUnits.Build([T("T1")]));
+        Assert.Empty(r.Conflicts);
+        Assert.True(repo.HasFile(r.Head, "one.txt"));
+    }
+
+    [Fact]
+    public void RebaseCopy_IgnoresUserSigning()
+    {
+        var (repo, git, wt) = Setup();
+        using var _ = repo;
+        repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
+        repo.Git("checkout", "-q", "epic/E1");
+        repo.Commit("epic moves", ("epic.txt", "e\n"));
+        repo.Git("checkout", "-q", "main");
+        BreakUserCommits(repo);
+        var tip = git.RevParse("refs/heads/epic/E1");
+        var outcome = wt.RebaseCopy(T("T1"), tip, "rebased/E1/T1");
+        Assert.True(outcome.Clean, outcome.Output);
+        Assert.True(repo.HasFile("rebased/E1/T1", "epic.txt") && repo.HasFile("rebased/E1/T1", "one.txt"));
+    }
+
     [Fact]
     public void Ensure_CleansIndexLockAndLeftoverMerge()
     {

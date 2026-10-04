@@ -29,9 +29,13 @@ public sealed class GitRunner
     public static IReadOnlyList<string> BaseConfig { get; } =
         ["-c", "core.autocrlf=false", "-c", "core.longpaths=true", "-c", "core.quotepath=false", "-c", "advice.detachedHead=false"];
 
-    /// <summary>Gets the committer identity used for tool-made commits (integration merges, rebased copies).</summary>
+    /// <summary>
+    /// Gets the committer identity used for tool-made commits (integration merges, rebased copies). Signing is off:
+    /// the user's <c>commit.gpgSign</c> would make every tool commit fail (or wait on a pinentry prompt) as an
+    /// identity the user's key does not belong to.
+    /// </summary>
     public static IReadOnlyList<string> ToolIdentity { get; } =
-        ["-c", "user.name=swarm-batch", "-c", "user.email=swarm-batch@example.invalid"];
+        ["-c", "user.name=swarm-batch", "-c", "user.email=swarm-batch@example.invalid", "-c", "commit.gpgSign=false"];
 
     /// <summary>Gets the working directory.</summary>
     public string WorkingDirectory { get; }

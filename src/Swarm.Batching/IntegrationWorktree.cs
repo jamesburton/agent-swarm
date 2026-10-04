@@ -101,7 +101,8 @@ public sealed class IntegrationWorktree
             UnitConflict? conflict = null;
             foreach (var task in unit.Members)
             {
-                var r = Git.Try("merge", "--no-ff", "--no-edit", "-m", $"batch: merge {task.Id} ({task.Branch})", task.BranchRef);
+                // --no-verify: the user's commit-msg / pre-merge-commit hooks must not turn a clean merge into a "conflict".
+                var r = Git.Try("merge", "--no-ff", "--no-edit", "--no-verify", "-m", $"batch: merge {task.Id} ({task.Branch})", task.BranchRef);
                 if (r.ExitCode == 0)
                 {
                     continue;

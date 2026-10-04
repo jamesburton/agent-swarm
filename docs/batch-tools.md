@@ -30,14 +30,14 @@ testgate reclaim --force [--config FILE] [--state DIR] [--slots N] [--max-wait S
 testgate --version
 ```
 
-- `run` waits for a free slot, runs the command in `--cwd` (default: current directory), releases the slot and prints exactly one JSON line (`GateResult`, see [Outputs](#outputs)) on stdout. Progress and the child's output go to stderr (`--verbosity detail` for the child's output). With no command after `--` it runs the config `testCommand` (default `dotnet test`). `--label` defaults to `testgate`. A first command token that starts with `-` is rejected as usage (exit 2): put the command after `--`.
+- `run` waits for a free slot, runs the command in `--cwd` (default: current directory), releases the slot and prints exactly one JSON line (`GateResult`, see [Outputs](#outputs)) on stdout. Progress and the child's output go to stderr: testgate shows the child's output at the default `normal` verbosity and `--verbosity quiet` hides it (`batch` shows suite output on stderr only at `detail`). With no command after `--` it runs the config `testCommand` (default `dotnet test`). `--label` defaults to `testgate`. A first command token that starts with `-` is rejected as usage (exit 2): put the command after `--`.
 - `status` prints one `GateStatus` line: the lock directory, the slot count and one entry per lock file (pid, host, command, heartbeat age, `stale`, `holderAlive`).
 - `reclaim` without `--force` is a usage error (exit 2, `reclaim deletes lock files (pass --force to confirm)`). With `--force` it deletes stale locks and locks of dead local holders, and prints a `ReclaimReport` (`reclaimed` and `skippedLive` slot lists). It never deletes the lock of a live local holder.
 
 How slots work:
 
 - Slot `k` is the file `<state>/slots/slot-k.lock`, created atomically (`FileMode.CreateNew`). The first free `k` below `slots` wins. The lock records pid, host, command, acquire time and the holder's process start time (to detect pid reuse).
-- The holder refreshes the file's modified time every `heartbeatSec`. A lock older than `expirySec` is stale and a waiter may take it over (the result then has `reclaimed: true`). A live local holder is never taken over even when stale (for example a suspended process); a holder on another host is always treated as alive by `reclaim`, but its stale lock is taken over by `run`.
+- The holder refreshes the file's modified time every `heartbeatSec`. A lock older than `expirySec` is stale and a waiter may take it over (the result then has `reclaimed: true`). A live local holder is never taken over even when stale (for example a suspended process); `status` reports holders on other hosts as alive (`holderAlive: true`), but both `reclaim --force` and a waiting `run` take over their locks once stale.
 - On Windows an open lock file cannot be deleted by another process, which closes the race between two simultaneous reclaimers.
 - Scope is one machine: the lock files live in the state directory. Two machines sharing a directory over a network share are not a supported setup (`unverified`).
 - Wait policy: polling every `pollMs`, no first-in-first-out ordering, so a waiter can be overtaken. The wait ends after `maxWaitSec` (default 3600; `0` = forever) with exit 5. `--max-wait` overrides it.

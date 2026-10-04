@@ -130,4 +130,41 @@ public class SlotSemaphoreTests
         Assert.Equal(new[] { 0 }, report.SkippedLive);
         Assert.True(File.Exists(live.LockPath));
     }
+
+    [Fact]
+    public void StaleLock_OfLiveLocalHolder_IsNeitherReclaimedNorTaken()
+    {
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Dir, "slot-0.lock");
+        using var me = System.Diagnostics.Process.GetCurrentProcess();
+        var info = new LockInfo(SwarmJson.SchemaVersion, Environment.ProcessId, Environment.MachineName, "suspended", DateTime.UtcNow, me.StartTime.ToUniversalTime());
+        File.WriteAllText(path, SwarmJson.Line(info));
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-5));
+        var sem = new SlotSemaphore(dir.Dir, Options(1, expirySec: 30));
+        var report = sem.Reclaim();
+        Assert.Empty(report.Reclaimed);
+        Assert.Equal(new[] { 0 }, report.SkippedLive);
+        Assert.Null(sem.TryAcquire("intruder"));
+        Assert.True(File.Exists(path));
+    }
+
+    [Fact]
+    public void EnvironmentalCreateFailure_IsEnvironmentErrorNotSlotHeld()
+    {
+        using var dir = new TempDir();
+        Directory.CreateDirectory(Path.Combine(dir.Dir, "slot-0.lock"));
+        var e = Assert.Throws<ToolException>(() => new SlotSemaphore(dir.Dir, Options(1)).TryAcquire("x"));
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("slot-0.lock", e.Message);
+    }
+
+    [Fact]
+    public void LockDirectoryBlockedByFile_IsEnvironmentError()
+    {
+        using var dir = new TempDir();
+        var blocker = Path.Combine(dir.Dir, "locks");
+        File.WriteAllText(blocker, "not a directory");
+        var e = Assert.Throws<ToolException>(() => new SlotSemaphore(blocker, Options(1)).TryAcquire("x"));
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+    }
 }

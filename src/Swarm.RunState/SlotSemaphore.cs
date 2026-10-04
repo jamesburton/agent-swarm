@@ -239,10 +239,9 @@ public sealed class SlotSemaphore
         var live = new List<int>();
         foreach (var h in Status())
         {
-            var deadLocal = h.Info is not null
-                && string.Equals(h.Info.Host, Environment.MachineName, StringComparison.OrdinalIgnoreCase)
-                && !h.HolderAlive;
-            if (!h.Stale && !deadLocal)
+            var local = IsLocal(h.Info);
+            var deadLocal = local && !h.HolderAlive;
+            if ((!h.Stale && !deadLocal) || (local && h.HolderAlive))
             {
                 live.Add(h.Slot);
                 continue;
@@ -263,21 +262,40 @@ public sealed class SlotSemaphore
         return new ReclaimReport(SwarmJson.SchemaVersion, reclaimed, live);
     }
 
+    static bool IsLocal(LockInfo? info) =>
+        info is not null && string.Equals(info.Host, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+
+    // Returns null only when the slot is taken (file exists, sharing violation, or a delete-pending file that is
+    // about to vanish). Any other failure is environmental and surfaces as a ToolException.
     static FileStream? TryCreate(string path)
     {
-        try
+        const int pendingRetries = 10;
+        for (var attempt = 0; ; attempt++)
         {
-            // CreateNew is the atomic acquire. No FileShare.Delete: nobody can delete a live holder's lock on Windows.
-            return new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite);
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Delete-pending file from a holder that is releasing.
-            return null;
+            try
+            {
+                // CreateNew is the atomic acquire. No FileShare.Delete: nobody can delete a live holder's lock on Windows.
+                return new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                if (File.Exists(path))
+                {
+                    return null;
+                }
+
+                // A delete-pending file reports access denied and not-exists; give it a moment to vanish.
+                if (e is UnauthorizedAccessException && attempt < pendingRetries)
+                {
+                    Thread.Sleep(20);
+                    continue;
+                }
+
+                throw new ToolException(
+                    ExitCodes.Environment,
+                    $"cannot create slot lock {path}: {TextLines.OneLine(e.Message)}",
+                    "check that the lock directory exists and is writable, and the path is short enough");
+            }
         }
     }
 
@@ -301,7 +319,18 @@ public sealed class SlotSemaphore
 
     SlotLease? TryOnce(string command, Stopwatch waited)
     {
-        Directory.CreateDirectory(LockDir);
+        try
+        {
+            Directory.CreateDirectory(LockDir);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new ToolException(
+                ExitCodes.Environment,
+                $"cannot create lock directory {LockDir}: {TextLines.OneLine(e.Message)}",
+                "check that the path is not a file and is writable");
+        }
+
         for (var k = 0; k < Options.Slots; k++)
         {
             var path = PathOf(k);
@@ -312,7 +341,9 @@ public sealed class SlotSemaphore
                 // Stale heartbeat: the holder crashed. Re-check, delete, race on CreateNew again (the loser keeps waiting).
                 try
                 {
-                    if (IsStale(path))
+                    // Never take over a live local holder (e.g. suspended): only Windows would refuse the delete.
+                    var info = ReadInfo(path);
+                    if (IsStale(path) && !(IsLocal(info) && IsHolderAlive(info)))
                     {
                         File.Delete(path);
                         stream = TryCreate(path);
@@ -336,11 +367,29 @@ public sealed class SlotSemaphore
 
     SlotLease Lease(int slot, string path, FileStream stream, bool reclaimed, TimeSpan waited, string command)
     {
-        using var me = Process.GetCurrentProcess();
-        var now = DateTime.UtcNow;
-        var info = new LockInfo(SwarmJson.SchemaVersion, Environment.ProcessId, Environment.MachineName, TextLines.OneLine(command), now, me.StartTime.ToUniversalTime());
-        stream.Write(Encoding.UTF8.GetBytes(SwarmJson.Line(info)));
-        stream.Flush();
-        return new SlotLease(slot, path, stream, reclaimed, waited, now, Options.Heartbeat);
+        try
+        {
+            using var me = Process.GetCurrentProcess();
+            var now = DateTime.UtcNow;
+            var info = new LockInfo(SwarmJson.SchemaVersion, Environment.ProcessId, Environment.MachineName, TextLines.OneLine(command), now, me.StartTime.ToUniversalTime());
+            stream.Write(Encoding.UTF8.GetBytes(SwarmJson.Line(info)));
+            stream.Flush();
+            return new SlotLease(slot, path, stream, reclaimed, waited, now, Options.Heartbeat);
+        }
+        catch
+        {
+            // Do not leak an undeletable lock (an open handle blocks reclaim on Windows).
+            stream.Dispose();
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Best effort: it goes stale and is reclaimed.
+            }
+
+            throw;
+        }
     }
 }

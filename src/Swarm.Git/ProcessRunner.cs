@@ -112,6 +112,7 @@ public static class ProcessRunner
         }
 
         var gate = new object();
+        var closed = false;
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
         var outDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -126,6 +127,12 @@ public static class ProcessRunner
 
             lock (gate)
             {
+                // Late lines from an orphan still holding the pipes must not reach the caller after Run has returned.
+                if (closed)
+                {
+                    return;
+                }
+
                 sink.Append(line).Append('\n');
                 options.OnLine?.Invoke(line);
             }
@@ -143,36 +150,46 @@ public static class ProcessRunner
             throw new ToolException(ExitCodes.Environment, $"cannot start '{fileName}': {e.Message}", "check the command exists on PATH");
         }
 
-        process.StandardInput.Close();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        var clock = Stopwatch.StartNew();
-        var killed = false;
-
-        // Poll instead of WaitForExit(): the parameterless overload also waits for pipe EOF, which a
-        // grandchild (e.g. an MSBuild node) can hold open forever.
-        while (!process.WaitForExit(100))
+        try
         {
-            if (cancellationToken.IsCancellationRequested)
+            process.StandardInput.Close();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            var clock = Stopwatch.StartNew();
+            var killed = false;
+
+            // Poll instead of WaitForExit(): the parameterless overload also waits for pipe EOF, which a
+            // grandchild (e.g. an MSBuild node) can hold open forever.
+            while (!process.WaitForExit(100))
             {
-                KillTree(process);
-                process.WaitForExit(5000);
-                cancellationToken.ThrowIfCancellationRequested();
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    KillTree(process);
+                    process.WaitForExit(5000);
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
+                if (options.Timeout is { } limit && clock.Elapsed > limit)
+                {
+                    KillTree(process);
+                    killed = true;
+                    process.WaitForExit(5000);
+                    break;
+                }
             }
 
-            if (options.Timeout is { } limit && clock.Elapsed > limit)
+            Task.WaitAll([outDone.Task, errDone.Task], options.OutputGrace);
+            lock (gate)
             {
-                KillTree(process);
-                killed = true;
-                process.WaitForExit(5000);
-                break;
+                return new ProcessResult(killed ? -1 : process.ExitCode, stdout.ToString(), stderr.ToString(), killed);
             }
         }
-
-        Task.WaitAll([outDone.Task, errDone.Task], options.OutputGrace);
-        lock (gate)
+        finally
         {
-            return new ProcessResult(killed ? -1 : process.ExitCode, stdout.ToString(), stderr.ToString(), killed);
+            lock (gate)
+            {
+                closed = true;
+            }
         }
     }
 

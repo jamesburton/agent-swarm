@@ -121,6 +121,43 @@ public class ProcessRunnerTests
     }
 
     [Fact]
+    public void OrphanOutputAfterGrace_IsNotDeliveredAfterRunReturns()
+    {
+        using var dir = new TempDir();
+        var pidFile = Path.Combine(dir.Dir, "orphan.pid");
+        var count = 0;
+        try
+        {
+            Fake(dir.Dir, new ProcessRunOptions { OutputGrace = TimeSpan.FromSeconds(1), OnLine = _ => Interlocked.Increment(ref count) }, default, "--orphan-ms", "4000", "--pid-file", pidFile);
+            var atReturn = Volatile.Read(ref count);
+
+            // The orphan writes its final line when its sleep ends, well after Run returned.
+            Thread.Sleep(TimeSpan.FromSeconds(6));
+            Assert.Equal(atReturn, Volatile.Read(ref count));
+        }
+        finally
+        {
+            if (File.Exists(pidFile))
+            {
+                Kill(int.Parse(File.ReadAllText(pidFile), System.Globalization.CultureInfo.InvariantCulture));
+            }
+        }
+    }
+
+    [Fact]
+    public void Cancel_StopsDeliveringLines()
+    {
+        using var dir = new TempDir();
+        var pidFile = Path.Combine(dir.Dir, "child.pid");
+        var count = 0;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        Assert.Throws<OperationCanceledException>(() => Fake(dir.Dir, new ProcessRunOptions { OnLine = _ => Interlocked.Increment(ref count) }, cts.Token, "--child-sleep-ms", "60000", "--pid-file", pidFile));
+        var atThrow = Volatile.Read(ref count);
+        Thread.Sleep(TimeSpan.FromSeconds(1));
+        Assert.Equal(atThrow, Volatile.Read(ref count));
+    }
+
+    [Fact]
     public void Resolve_FindsCmdShimViaPathExt()
     {
         if (!OperatingSystem.IsWindows())

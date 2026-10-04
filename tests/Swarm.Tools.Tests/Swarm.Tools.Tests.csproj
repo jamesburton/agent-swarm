@@ -22,5 +22,6 @@
     <ProjectReference Include="..\..\src\Swarm.Batching\Swarm.Batching.csproj" />
     <ProjectReference Include="..\..\src\Swarm.TestGate.Cli\Swarm.TestGate.Cli.csproj" />
     <ProjectReference Include="..\..\src\Swarm.Batch.Cli\Swarm.Batch.Cli.csproj" />
+    <ProjectReference Include="..\Swarm.FakeSuite\Swarm.FakeSuite.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

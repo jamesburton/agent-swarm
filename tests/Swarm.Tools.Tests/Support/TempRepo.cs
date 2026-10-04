@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Text;
 using System.Text.Json;
 using Swarm.Git;
 
@@ -47,33 +45,9 @@ public sealed class TempRepo : IDisposable
     /// <param name="dir">Working directory.</param>
     /// <param name="args">Git arguments.</param>
     /// <returns>Trimmed standard output.</returns>
-    /// <exception cref="InvalidOperationException">Git exited non-zero.</exception>
-    public static string RunGit(string dir, params string[] args)
-    {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = dir, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
-        foreach (var a in (string[])["-c", "core.autocrlf=false", "-c", "core.quotepath=false", .. args])
-        {
-            psi.ArgumentList.Add(a);
-        }
-
-        var errors = new StringBuilder();
-        using var p = new Process { StartInfo = psi };
-        p.ErrorDataReceived += (_, e) =>
-        {
-            if (e.Data is not null)
-            {
-                lock (errors)
-                {
-                    errors.AppendLine(e.Data);
-                }
-            }
-        };
-        p.Start();
-        p.BeginErrorReadLine();
-        var output = p.StandardOutput.ReadToEnd();
-        p.WaitForExit();
-        return p.ExitCode == 0 ? output.Trim() : throw new InvalidOperationException($"git {string.Join(' ', args)} failed in {dir}: {errors}");
-    }
+    /// <exception cref="ToolException">Git exited non-zero.</exception>
+    public static string RunGit(string dir, params string[] args) =>
+        new GitRunner(dir).Run(args);
 
     /// <summary>Runs git in the repo root.</summary>
     /// <param name="args">Git arguments.</param>
@@ -138,18 +112,8 @@ public sealed class TempRepo : IDisposable
     /// <param name="rev">Any git revision.</param>
     /// <param name="path">Repo-relative path.</param>
     /// <returns>True when the path exists in that revision.</returns>
-    public bool HasFile(string rev, string path)
-    {
-        try
-        {
-            Git("cat-file", "-e", $"{rev}:{path}");
-            return true;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-    }
+    public bool HasFile(string rev, string path) =>
+        new GitRunner(Root).Try("cat-file", "-e", $"{rev}:{path}").ExitCode == 0;
 
     /// <summary>Writes <c>tasks.json</c> (camelCase) in the sandbox.</summary>
     /// <param name="tasks">Task entries.</param>

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using Swarm.Git;
 
 namespace Swarm.Tools.Tests.Support;
 
@@ -7,16 +7,8 @@ public class FixtureTests
     static (int Code, string Out) RunFake(string cwd, params string[] extra)
     {
         var cmd = FakeSuite.Command(extra);
-        var psi = new ProcessStartInfo(cmd[0]) { WorkingDirectory = cwd, RedirectStandardOutput = true, UseShellExecute = false };
-        foreach (var a in cmd.Skip(1))
-        {
-            psi.ArgumentList.Add(a);
-        }
-
-        using var p = Process.Start(psi)!;
-        var output = p.StandardOutput.ReadToEnd();
-        p.WaitForExit();
-        return (p.ExitCode, output);
+        var r = ProcessRunner.Run(cmd[0], cmd.Skip(1).ToList(), cwd);
+        return (r.ExitCode, r.StdOut);
     }
 
     [Fact]

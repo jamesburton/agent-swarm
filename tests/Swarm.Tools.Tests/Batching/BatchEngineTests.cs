@@ -181,4 +181,36 @@ public class BatchEngineTests
         Assert.Contains("not-attempted tasks without a failure", s.Note);
         Assert.Equal(1, s.FullSuiteRuns);
     }
+
+    [Fact]
+    public void InferredRed_NamesTheRedSuiteLog()
+    {
+        using var repo = Repo();
+        repo.Branch("task/T1", "epic/E1", ("t1.txt", "1\n"));
+        repo.Branch("task/T2", "epic/E1", ("T2.fail", ""));
+        var s = BatchScenario.Run(repo, repo.WriteTasks(new TaskLine("T1", "task/T1"), new TaskLine("T2", "task/T2")));
+        Assert.Equal((2, 1), (s.FullSuiteRuns, s.InferredRedSkipped));
+        var reason = BatchScenario.Returned(s)["T2"].Reason;
+        Assert.Contains("suite-001.log", reason);
+        Assert.DoesNotContain("suite-002.log", reason);
+    }
+
+    [Fact]
+    public void RightHalfThatConflictsOnReintegration_IsTestedNotInferredRed()
+    {
+        using var repo = Repo();
+
+        // T3 is stacked on T1 without declaring it. After a squash-like landing of [T1, T2], T1's commit is not an
+        // ancestor of the epic, so T3 conflicts (add/add on a.txt) and T4 is left alone: its tree is not the one
+        // seen red, so it must be tested rather than blamed by inference.
+        repo.Branch("task/T1", "epic/E1", ("a.txt", "1\n"));
+        repo.Branch("task/T2", "epic/E1", ("t2.txt", "2\n"));
+        repo.Branch("task/T3", "task/T1", ("a.txt", "3\n"), ("T3.fail", ""));
+        repo.Branch("task/T4", "epic/E1", ("t4.txt", "4\n"));
+        var tasks = repo.WriteTasks(new TaskLine("T1", "task/T1"), new TaskLine("T2", "task/T2"), new TaskLine("T3", "task/T3"), new TaskLine("T4", "task/T4"));
+        var s = BatchScenario.Run(repo, tasks, lander: new SquashLikeLander(), prebatch: false);
+        Assert.Equal(0, s.InferredRedSkipped);
+        Assert.Contains("T4", s.Landed.Select(l => l.Id));
+        Assert.False(BatchScenario.Returned(s).ContainsKey("T4"));
+    }
 }

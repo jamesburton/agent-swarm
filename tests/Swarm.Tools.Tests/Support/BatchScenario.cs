@@ -84,3 +84,20 @@ public sealed class NothingAttemptedLander : ILander
 
     public LandResult Land(LandRequest r) => new(r.EpicTipBefore, [], null, r.Tasks.Select(t => t.Id).ToList());
 }
+
+/// <summary>
+/// Lands like a squash lander: one new commit with the tested tree whose only parent is the old epic tip, so task
+/// commits are not ancestors of the epic afterwards.
+/// </summary>
+public sealed class SquashLikeLander : ILander
+{
+    public string Name => "squash-like";
+
+    public LandResult Land(LandRequest r)
+    {
+        var tree = r.Repo.Run("rev-parse", r.TestedCommit + "^{tree}");
+        var commit = r.Repo.WithIdentity().Run("commit-tree", tree, "-p", r.EpicTipBefore, "-m", $"squash batch {r.Batch}");
+        r.Repo.Run("update-ref", GitRunner.HeadsRef(r.EpicBranch), commit, r.EpicTipBefore);
+        return new LandResult(commit, r.Tasks.Select(t => new LandedTask(t.Id, commit)).ToList(), null, []);
+    }
+}

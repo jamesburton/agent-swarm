@@ -103,6 +103,9 @@ public sealed class BatchEngine
 
     sealed record SetOutcome(bool Red, bool CleanAndLanded);
 
+    // A state already seen red: the tree of the integration commit and the suite log that was red for it.
+    sealed record RedEvidence(string Tree, string Log);
+
     /// <summary>Runs the batch (once per engine).</summary>
     /// <param name="cancellationToken">Stops the run; the summary records exit 4.</param>
     /// <returns>The summary (also written to <c>summary.json</c>).</returns>
@@ -242,7 +245,7 @@ public sealed class BatchEngine
             sizeTrace.Add(size);
             progress.Info($"batch {batchNo} size {size}: {Ids(pick)}");
             events!.Write(EventTypes.BatchStart, new { batch = batchNo, size, tasks = pick.SelectMany(u => u.Ids).ToList() });
-            var outcome = ProcessSet(pick, batchNo, knownRed: false, bisect: false, ct);
+            var outcome = ProcessSet(pick, batchNo, knownRed: null, bisect: false, ct);
             RebaseReturned();
 
             // Requeued units go back as one block in tasks-file order, so "the later task is blamed" still holds.
@@ -254,7 +257,7 @@ public sealed class BatchEngine
         integration.ResetTo(GitRunner.HeadsRef(epicBranch));
     }
 
-    SetOutcome ProcessSet(IReadOnlyList<TaskUnit> units, int batch, bool knownRed, bool bisect, CancellationToken ct)
+    SetOutcome ProcessSet(IReadOnlyList<TaskUnit> units, int batch, RedEvidence? knownRed, bool bisect, CancellationToken ct)
     {
         var tip = EpicTip();
         var integ = integration!.Integrate(tip, units);
@@ -271,18 +274,24 @@ public sealed class BatchEngine
             return new SetOutcome(Red: false, CleanAndLanded: false);
         }
 
+        // Inference is only sound for exactly the state seen red: a lander that rewrites commits (squash) can make a
+        // re-integrated half conflict or produce a different tree, and then the half must be tested.
         bool red;
-        if (knownRed)
+        string redLog;
+        var inferredRed = knownRed is not null && integ.Conflicts.Count == 0 && Tree(integ.Head) == knownRed.Tree;
+        if (inferredRed)
         {
             red = true;
+            redLog = knownRed!.Log;
             inferred++;
         }
         else
         {
             red = Suite(batch, bisect, mergedIds, integ.Head, ct) != 0;
+            redLog = lastSuiteLog;
         }
 
-        batchLog.Add(new BatchLogEntry(batch, bisect, mergedIds, knownRed ? "red (inferred)" : red ? "red" : "green"));
+        batchLog.Add(new BatchLogEntry(batch, bisect, mergedIds, inferredRed ? "red (inferred)" : red ? "red" : "green"));
         if (!red)
         {
             return new SetOutcome(false, LandSet(integ, tip, batch) && integ.Conflicts.Count == 0);
@@ -290,16 +299,17 @@ public sealed class BatchEngine
 
         if (integ.Merged.Count == 1)
         {
-            RejectRed(integ.Merged[0], batch);
+            RejectRed(integ.Merged[0], batch, redLog);
             return new SetOutcome(true, false);
         }
 
         var (left, right) = BatchPlanner.Halve(integ.Merged);
         events.Write(EventTypes.Bisect, new { batch, left = left.SelectMany(u => u.Ids).ToList(), right = right.SelectMany(u => u.Ids).ToList() });
-        var l = ProcessSet(left, batch, knownRed: false, bisect: true, ct);
+        var l = ProcessSet(left, batch, knownRed: null, bisect: true, ct);
 
-        // Left green and fully landed: epic tip + right is exactly the state already seen red, so infer instead of re-running.
-        ProcessSet(right, batch, knownRed: !l.Red && l.CleanAndLanded, bisect: true, ct);
+        // Left green and fully landed: epic tip + right should be exactly the state already seen red, so infer
+        // instead of re-running (checked against the red tree inside).
+        ProcessSet(right, batch, knownRed: !l.Red && l.CleanAndLanded ? new RedEvidence(Tree(integ.Head), redLog) : null, bisect: true, ct);
         return new SetOutcome(true, false);
     }
 
@@ -395,14 +405,14 @@ public sealed class BatchEngine
         }
     }
 
-    void RejectRed(TaskUnit unit, int batch)
+    void RejectRed(TaskUnit unit, int batch, string redLog)
     {
         foreach (var t in unit.Members)
         {
             progress.Info($"  REJECT {t.Id}: suite red with this task on the epic tip");
             var reason = unit.Size == 1
-                ? $"suite red with this task on the epic tip (culprit isolated by bisect; later task of a pair is blamed; log {lastSuiteLog})"
-                : $"suite red for stack {string.Join('+', unit.Ids)} (a stack is tested as one unit; log {lastSuiteLog})";
+                ? $"suite red with this task on the epic tip (culprit isolated by bisect; later task of a pair is blamed; log {redLog})"
+                : $"suite red for stack {string.Join('+', unit.Ids)} (a stack is tested as one unit; log {redLog})";
             ledger!.Record(Entry(t, ReturnKind.Red, ReturnStage.Suite, batch, reason) with { Final = FinalState.ReturnedRed });
         }
     }
@@ -473,6 +483,8 @@ public sealed class BatchEngine
     }
 
     string EpicTip() => main.RevParse(GitRunner.HeadsRef(epicBranch));
+
+    string Tree(string commit) => main.Run("rev-parse", commit + "^{tree}");
 
     string CopyBranch(string taskId) => $"rebased/{config.Epic}/{taskId}";
 

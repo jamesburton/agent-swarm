@@ -1,13 +1,12 @@
 using Swarm.Batching;
 using Swarm.Git;
 using Swarm.Tools.Tests.Support;
+using static Swarm.Tools.Tests.Support.Tasks;
 
 namespace Swarm.Tools.Tests.Batching;
 
 public class IntegrationWorktreeTests
 {
-    static TaskSpec T(string id, params string[] deps) => new(id, "task/" + id, deps);
-
     static (TempRepo Repo, GitRunner Git, IntegrationWorktree Wt) Setup()
     {
         var repo = TempRepo.Create();

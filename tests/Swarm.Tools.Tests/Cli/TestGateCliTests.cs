@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Swarm.Git;
 using Swarm.RunState;
 using Swarm.Tools.Tests.Support;
+using static Swarm.Tools.Tests.Support.JsonOutput;
 using TestGateProgram = Swarm.TestGate.Cli.Program;
 
 namespace Swarm.Tools.Tests.Cli;
@@ -18,12 +19,6 @@ public class TestGateCliTests
     }
 
     static string Config(TempRepo repo) => TestConfig.Write(repo, TestConfig.For(repo));
-
-    static JsonElement SingleJsonLine(string stdout)
-    {
-        var line = Assert.Single(stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-        return JsonDocument.Parse(line).RootElement;
-    }
 
     [Fact]
     public void Run_GreenCommand_PrintsOneJsonLineAndExits0()

@@ -6,7 +6,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>testgate</ToolCommandName>
     <PackageId>Swarm.TestGate</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>NOT REAL placeholder package id (unclaimed on nuget.org). Machine-wide test-slot gate for agent swarms.</Description>
   </PropertyGroup>
   <ItemGroup>

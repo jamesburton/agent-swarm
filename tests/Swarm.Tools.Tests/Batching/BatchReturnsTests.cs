@@ -82,19 +82,36 @@ public class BatchReturnsTests
     }
 
     [Theory]
-    [InlineData("T2")] // the task's own copy name
-    [InlineData("T1")] // another task's copy name: T1's rebase would reset or delete T2's worker branch
-    public void WorkerBranchNamedLikeACopy_IsBadInput_NothingCreatedOrMoved(string copyOf)
+    [InlineData("rebased/E1/T2")] // the task's own copy name
+    [InlineData("rebased/E1/T1")] // another task's copy name: T1's rebase would reset or delete T2's worker branch
+    [InlineData("Rebased/E1/T2")] // same ref on a case-insensitive (files backend, Windows) ref store
+    [InlineData("rebased")] // a ref-directory clash: no rebased/... copy could be created
+    [InlineData("rebased/E1")]
+    [InlineData("rebased/E1/T2/x")] // the copy rebased/E1/T2 cannot be created under an existing directory
+    public void WorkerBranchNamedLikeACopy_IsBadInput_NothingCreatedOrMoved(string branch)
     {
-        var branch = "rebased/E1/" + copyOf;
         using var repo = SharedFileRepo(t2Branch: branch);
         var worker = repo.Sha(branch);
         var tasks = repo.WriteTasks(new TaskLine("T1", "task/T1"), new TaskLine("T2", branch));
         var e = Assert.Throws<ToolException>(() => BatchScenario.Run(repo, tasks, prebatch: false));
         Assert.Equal(ExitCodes.BadInput, e.ExitCode);
-        Assert.Contains($"branch '{branch}' is reserved", e.Message);
+        Assert.Contains($"branch '{branch}' clashes with", e.Message);
         Assert.False(Directory.Exists(repo.StateDir));
         Assert.Equal(worker, repo.Sha(branch));
+    }
+
+    [Theory]
+    [InlineData("rebased")]
+    [InlineData("rebased/E1")]
+    public void ExistingBranchBlockingCopies_IsBadInput_NothingCreated(string blocker)
+    {
+        using var repo = SharedFileRepo();
+        repo.Git("branch", blocker, "main");
+        var tasks = repo.WriteTasks(new TaskLine("T1", "task/T1"), new TaskLine("T2", "task/T2"));
+        var e = Assert.Throws<ToolException>(() => BatchScenario.Run(repo, tasks, prebatch: false));
+        Assert.Equal(ExitCodes.BadInput, e.ExitCode);
+        Assert.Contains($"branch '{blocker}' blocks", e.Message);
+        Assert.False(Directory.Exists(repo.StateDir));
     }
 
     [Fact]

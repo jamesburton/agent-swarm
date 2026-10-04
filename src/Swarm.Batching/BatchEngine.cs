@@ -477,13 +477,28 @@ public sealed class BatchEngine
     string CopyBranch(string taskId) => $"rebased/{config.Epic}/{taskId}";
 
     // A worker branch named like any task's rebase copy would be reset (checkout -B) or deleted (branch -D) by that
-    // task's automatic rebase, so such a tasks file is rejected before anything is created.
+    // task's automatic rebase, so such a tasks file is rejected before anything is created. Names are compared
+    // case-insensitively (a files-backend ref store on Windows treats Rebased/E1/T2 and rebased/E1/T2 as one ref), and
+    // a name that is a '/'-prefix of the other is a ref directory/file clash that would make creating the copy fail.
     void EnsureNoCopyNameClash(IReadOnlyList<TaskSpec> tasks)
     {
-        var copies = tasks.Select(t => CopyBranch(t.Id)).ToHashSet(StringComparer.Ordinal);
-        if (tasks.FirstOrDefault(t => copies.Contains(t.Branch)) is { } clash)
+        const StringComparison cmp = StringComparison.OrdinalIgnoreCase;
+        var copies = tasks.Select(x => CopyBranch(x.Id)).ToList();
+        foreach (var t in tasks)
         {
-            throw new ToolException(ExitCodes.BadInput, $"task '{clash.Id}': branch '{clash.Branch}' is reserved for the batch tool's rebase copies", "rename the task branch (rebased/<epic>/<task id> is tool-owned)");
+            if (copies.FirstOrDefault(copy => string.Equals(t.Branch, copy, cmp) || copy.StartsWith(t.Branch + "/", cmp) || t.Branch.StartsWith(copy + "/", cmp)) is { } clash)
+            {
+                throw new ToolException(ExitCodes.BadInput, $"task '{t.Id}': branch '{t.Branch}' clashes with the batch tool's rebase copy '{clash}'", "rename the task branch (rebased/<epic>/<task id> is tool-owned)");
+            }
+        }
+
+        // An unrelated existing branch 'rebased' or 'rebased/<epic>' blocks every copy (ref directory/file clash).
+        foreach (var prefix in new[] { "rebased", $"rebased/{config.Epic}" })
+        {
+            if (main.RefExists(GitRunner.HeadsRef(prefix)))
+            {
+                throw new ToolException(ExitCodes.BadInput, $"branch '{prefix}' blocks the batch tool's rebase copies (rebased/{config.Epic}/<task id>)", "rename or delete that branch");
+            }
         }
     }
 

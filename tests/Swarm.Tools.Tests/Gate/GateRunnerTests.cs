@@ -39,4 +39,25 @@ public class GateRunnerTests
         using var dir = new TempDir();
         Assert.Equal(ExitCodes.Usage, Assert.Throws<ToolException>(() => new GateRunner(Slots(dir.Dir)).Run(new GateRequest([], dir.Dir, "t"))).ExitCode);
     }
+
+    [Fact]
+    public void CancelledAsTheChildFails_ThrowsCancelled_NotARedResult()
+    {
+        using var dir = new TempDir();
+        var slots = Slots(dir.Dir);
+        using var cts = new CancellationTokenSource();
+
+        // Ctrl+C arrives as the child reports its failure and exits non-zero at once: the process runner has already
+        // seen the exit (it only polls the token while the child runs) and returns normally with exit code 1.
+        var runner = new GateRunner(slots, line =>
+        {
+            if (line.Contains("nosuchcmd", StringComparison.Ordinal))
+            {
+                cts.Cancel();
+            }
+        });
+        Assert.Throws<OperationCanceledException>(() => runner.Run(new GateRequest(["git", "nosuchcmd"], dir.Dir, "t"), cts.Token));
+        using var lease = slots.TryAcquire("next");
+        Assert.NotNull(lease);
+    }
 }

@@ -59,6 +59,10 @@ public sealed class GateRunner(SlotSemaphore slots, Action<string>? onOutputLine
             lease.Dispose();
         }
 
+        // The child can exit (often non-zero, from the same signal) before the runner polls the token: a cancelled run
+        // is reported as cancelled, never as the command's own failure.
+        cancellationToken.ThrowIfCancellationRequested();
+
         var gate = new GateResult(SwarmJson.SchemaVersion, request.Label, (long)lease.Waited.TotalMilliseconds, runMs, lease.Slot, result.ExitCode, lease.Reclaimed, result.Killed, lease.AcquiredUtc, DateTime.UtcNow);
         return new GateRun(gate, log.ToString());
     }

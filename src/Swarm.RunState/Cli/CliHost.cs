@@ -30,7 +30,10 @@ public static class CliHost
     }
 }
 
-/// <summary>Cancels a token on Ctrl+C instead of killing the process, so slots are released and child trees killed.</summary>
+/// <summary>
+/// Cancels a token on the first Ctrl+C instead of killing the process, so slots are released and child trees killed;
+/// a second Ctrl+C terminates the process.
+/// </summary>
 public sealed class CtrlCScope : IDisposable
 {
     readonly CancellationTokenSource source = new();
@@ -39,16 +42,37 @@ public sealed class CtrlCScope : IDisposable
     /// <summary>Initializes a new instance of the <see cref="CtrlCScope"/> class.</summary>
     public CtrlCScope()
     {
-        handler = (_, e) =>
-        {
-            e.Cancel = true;
-            source.Cancel();
-        };
+        handler = (_, e) => e.Cancel = Signal();
         Console.CancelKeyPress += handler;
     }
 
     /// <summary>Gets the token cancelled by Ctrl+C.</summary>
     public CancellationToken Token => source.Token;
+
+    /// <summary>
+    /// Handles one Ctrl+C (the console handler calls this). The first press cancels the token and keeps the process
+    /// alive so it can release slots and kill child trees; a second press is left to the default handling, which
+    /// terminates the process (a way out of a step that does not observe the token).
+    /// </summary>
+    /// <returns>True when the process should keep running.</returns>
+    public bool Signal()
+    {
+        if (source.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        try
+        {
+            source.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Ctrl+C raced Dispose on the signal thread: the scope is over, nothing is left to cancel.
+        }
+
+        return true;
+    }
 
     /// <summary>Unhooks the handler.</summary>
     public void Dispose()

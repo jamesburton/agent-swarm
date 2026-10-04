@@ -149,11 +149,11 @@ squash --version
 
 (Usage lines from `--help` of the built tool.) `--task` and `--branch` are required; `--task` is a safe name (letters, digits, `_`, `-`, single dots), `--branch` a valid branch name that must exist and is never modified. `--epic` defaults to the config `epic`; the epic branch (`epicBranchTemplate`) must exist and must not be checked out in any worktree. `--run-id` defaults to `squash-<yyyyMMdd-HHmmss-fff>-<epic>`. `--slots` and `--max-wait` are accepted but do not affect the epic lock (read from source: the lock is taken for one slot without waiting).
 
-What it does: takes the epic lock, creates (or reuses) the integration worktree `<worktreeRoot>/int-<epic>`, merges the branch onto the epic tip there, and calls the same `SquashLander` as `batch`, with `Batch: 0`. There is no test run: the tree it lands is the tree of that one merge. Progress goes to stderr; stdout is exactly one JSON line, `SquashRunResult`:
+What it does: takes the epic lock, creates (or reuses) the integration worktree `<worktreeRoot>/int-<epic>`, merges the branch onto the epic tip there, and calls the same `SquashLander` as `batch`, with `Batch: 0`. There is no test run: the tree it lands is the tree of that one merge. Progress goes to stderr. On exit 0 or 1 stdout is exactly one JSON line, `SquashRunResult`; on exits 2 to 4 stdout is empty and stderr carries one `error: <what> (<hint>)` line (every `ToolException` is handled by `ToolErrors.Handle`, which writes only that line; run with a missing branch: exit 3, stdout empty, stderr `error: task branch 'nosuch' not found`):
 
 `schemaVersion`, `runId`, `task`, `branch`, `epic`, `epicBranch`, `epicTipBefore`, `epicTipAfter`, `ticket` (null when nothing landed), `commit` (null when nothing landed or empty), `empty`, `exitCode`, `note` (why nothing landed, or null).
 
-| Exit | Meaning (source: `SquashRunner`, `Program`; tests in `SquashCliTests`) |
+| Exit | Meaning (source: `SquashRunner`, `Program`; tests in `SquashCliTests`). JSON on stdout only for 0 and 1; 2 to 4 print only the `error:` line on stderr. |
 |---|---|
 | 0 | Landed, or empty (the epic already had the change; `empty: true`, `note` says so) |
 | 1 | Merge conflict with the epic tip (nothing lands, `note` names the files), or a land failure such as `requireTicket` with no ticket |

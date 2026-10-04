@@ -40,8 +40,8 @@ public static class JsonlFile
 
                 stream.Write(bytes);
             },
-            attempts: 2000,
-            delayMs: 2);
+            attempts: 400,
+            delayMs: 10);
     }
 
     /// <summary>Reads every complete line.</summary>
@@ -67,7 +67,7 @@ public static class JsonlFile
         var records = new List<T>();
         foreach (var line in lines[..^1].Where(l => l.Trim().Length > 0))
         {
-            // Malformed or null lines are crash fragments; schema problems are not skipped.
+            // Malformed, null or type-mismatched lines are skipped (a crash fragment cannot be told from a schema error).
             try
             {
                 if (JsonSerializer.Deserialize<T>(line, SwarmJson.Compact) is { } record)

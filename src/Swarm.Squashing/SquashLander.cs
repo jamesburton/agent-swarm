@@ -53,14 +53,25 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
 
     /// <summary>Lands the tasks and reports the squashed commits.</summary>
     /// <param name="request">The request (see the <see cref="ILander"/> contract).</param>
-    /// <returns>The contract result and the commits made.</returns>
+    /// <returns>
+    /// The contract result and the commits made. With <see cref="SquashConfig.RequireTicket"/>, a task that needs a
+    /// commit but has no ticket lands nothing at all: it is the failure and every other task is not attempted.
+    /// </returns>
     /// <exception cref="ToolException">The tested commit is not epic tip + one merge per task, the rebuilt tree differs, or the epic moved (exit code 4); nothing is landed then.</exception>
     public SquashOutcome Execute(LandRequest request)
     {
         var links = TestedChain.Read(request).ToDictionary(l => l.Task.Id, StringComparer.Ordinal);
         var units = TaskUnits.Build(request.Tasks.Select(t => new TaskSpec(t.Id, t.Branch, t.DependsOn)).ToList());
         EnsureRequestOrder(request, units);
-        var context = new MessageContext(request.Epic, request.Batch, request.RunId);
+        if (MissingTicket(request, links) is { } missing)
+        {
+            // Only the whole chain was tested: landing the tasks before a ticket-less one would put an untested state
+            // on the epic. Nothing lands; the other tasks are reported not attempted and are retested without it.
+            var others = request.Tasks.Select(t => t.Id).Where(id => !string.Equals(id, missing.TaskId, StringComparison.Ordinal)).ToList();
+            return new SquashOutcome(new LandResult(request.EpicTipBefore, [], missing, others), []);
+        }
+
+        var context =new MessageContext(request.Epic, request.Batch, request.RunId);
         var landedSources = Chunk(LandedSources(request.Repo, request.EpicTipBefore));
         var messageFile = Path.Combine(request.Worktree.Run("rev-parse", "--absolute-git-dir"), MessageFileName);
         var tip = request.EpicTipBefore;
@@ -262,20 +273,21 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
         foreach (var (ticket, members) in Groups(request, unit, links))
         {
             var ids = members.Select(m => m.Task.Id).ToList();
-            if (ticket is null)
-            {
-                var t = members[0].Task;
-                var reason = $"no ticket for task '{t.Id}' (branch '{t.Branch}'): squash.ticketPattern '{config.TicketPattern}' matches neither and squash.requireTicket is true";
-                return new UnitDraft(tip, tree, [], [], new LandFailure(t.Id, [], reason));
-            }
-
             var last = members[^1];
             if (string.Equals(last.Tree, tree, StringComparison.Ordinal))
             {
                 // The epic already holds this content: the tasks count as landed where they are; never an empty commit.
+                // Checked before the ticket: no commit is made, so a ticket-less no-op needs no ticket (Ruling B3-final).
                 landed.AddRange(ids.Select(id => new LandedTask(id, tip)));
-                commits.Add(new SquashCommit(ids, ticket, null, true, ""));
+                commits.Add(new SquashCommit(ids, ticket ?? "", null, true, ""));
                 continue;
+            }
+
+            if (ticket is null)
+            {
+                // Unreachable after MissingTicket; kept so a ticket-less group can never become a commit.
+                var t = members[0].Task;
+                return new UnitDraft(tip, tree, [], [], new LandFailure(t.Id, [], NoTicketReason(t)));
             }
 
             // Source tips stay per task and unchanged (null for a no-op merge); the branch tip is never substituted
@@ -295,6 +307,27 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
 
         return new UnitDraft(tip, tree, landed, commits, null);
     }
+
+    // With squash.requireTicket, the first task in request order that would need a commit (its merge changed the tested
+    // tree) but has no ticket. A no-op task needs none: no commit is made for it.
+    LandFailure? MissingTicket(LandRequest request, IReadOnlyDictionary<string, ChainLink> links)
+    {
+        foreach (var task in request.Tasks)
+        {
+            var link = links[task.Id];
+            if (TicketResolver.Resolve(config, task.Id, TicketBranch(request, task), ticketOverride) is null
+                && link.Source is not null
+                && !string.Equals(link.Tree, request.Repo.Run("rev-parse", link.Before + "^{tree}"), StringComparison.Ordinal))
+            {
+                return new LandFailure(task.Id, [], NoTicketReason(task));
+            }
+        }
+
+        return null;
+    }
+
+    string NoTicketReason(LandTask task) =>
+        $"no ticket for task '{task.Id}' (branch '{task.Branch}'): squash.ticketPattern '{config.TicketPattern}' matches neither and squash.requireTicket is true; nothing landed from this batch";
 
     // Consecutive members of one unit with the same ticket form one group; a member without a ticket is its own group.
     IEnumerable<(string? Ticket, List<ChainLink> Members)> Groups(LandRequest request, TaskUnit unit, IReadOnlyDictionary<string, ChainLink> links)

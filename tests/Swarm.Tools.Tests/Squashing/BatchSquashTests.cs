@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Swarm.Batching;
 using Swarm.Git;
 using Swarm.RunState;
@@ -67,6 +68,37 @@ public class BatchSquashTests
         var t2 = BatchScenario.Returned(s)["T2"];
         Assert.Equal((ReturnKind.Conflict, ReturnStage.Land, FinalState.NeedsWorker), (t2.Kind, t2.Stage, t2.Final));
         Assert.Contains("no ticket", t2.GitOutput);
+    }
+
+    [Fact]
+    public void Engine_RequireTicket_EpicOnlyEverHoldsGreenTestedTrees()
+    {
+        // T1+T2+T3 is green but T2 has no ticket: nothing lands from that batch, T1 and T3 are retested without T2.
+        using var repo = TempRepo.Create();
+        repo.Epic();
+        var before = repo.Sha("epic/E1");
+        repo.Branch("task/9931-a", "epic/E1", ("a.txt", "a\n"));
+        repo.Branch("task/T2", "epic/E1", ("b.txt", "b\n"));
+        repo.Branch("task/9933-c", "epic/E1", ("c.txt", "c\n"));
+        var tasks = repo.WriteTasks(new TaskLine("T1", "task/9931-a"), new TaskLine("T2", "task/T2"), new TaskLine("T3", "task/9933-c"));
+        var s = BatchScenario.Run(repo, tasks, lander: new SquashLander(new SquashConfig { RequireTicket = true }, "main"));
+        Assert.Equal(new[] { "T1", "T3" }, s.Landed.Select(l => l.Id));
+        Assert.False(repo.HasFile("epic/E1", "b.txt"));
+        var greenTrees = File.ReadAllLines(s.EventsFile)
+            .Select(l => JsonDocument.Parse(l).RootElement)
+            .Where(e => e.GetProperty("type").GetString() == EventTypes.Suite)
+            .Select(e => e.GetProperty("data"))
+            .Where(d => d.GetProperty("verdict").GetString() == "green")
+            .Select(d => repo.Sha(d.GetProperty("head").GetString() + "^{tree}"))
+            .ToHashSet();
+        // Every epic move (one per Land, recorded in the reflog) must leave a tree that a green suite run tested.
+        var moves = repo.Git("reflog", "show", "--format=%H %gs", "refs/heads/epic/E1").Split('\n')
+            .Where(l => l.Contains(": land batch ", StringComparison.Ordinal))
+            .Select(l => l[..l.IndexOf(' ', StringComparison.Ordinal)])
+            .ToList();
+        Assert.NotEmpty(moves);
+        Assert.All(moves, tip => Assert.Contains(repo.Sha(tip + "^{tree}"), greenTrees));
+        Assert.Contains(before, repo.Git("rev-list", "--first-parent", "epic/E1").Split('\n'));
     }
 
     [Theory]

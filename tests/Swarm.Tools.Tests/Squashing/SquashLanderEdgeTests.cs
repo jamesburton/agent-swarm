@@ -22,24 +22,29 @@ public class SquashLanderEdgeTests
         new SquashLander(config ?? new SquashConfig(), "main", ticket).Execute(request);
 
     [Fact]
-    public void RequireTicket_StopsAtFirstTaskWithoutTicket()
+    public void RequireTicket_TicketlessTask_LandsNothing()
     {
+        // Only the whole chain was tested, so landing T1 alone would put an untested state on the epic.
         using var repo = Repo();
         repo.Branch("task/9931-a", "epic/E1", ("a.txt", "a\n"));
         repo.Branch("task/T2", "epic/E1", ("b.txt", "b\n"));
         repo.Branch("task/9933-c", "epic/E1", ("c.txt", "c\n"));
         var request = Tested(repo, Worktree(repo), T("T1", "task/9931-a"), T("T2"), T("T3", "task/9933-c"));
-        var result = Land(request, new SquashConfig { RequireTicket = true }).Result;
-        Assert.Equal(new[] { "T1" }, result.Landed.Select(l => l.TaskId));
+        var outcome = Land(request, new SquashConfig { RequireTicket = true });
+        var result = outcome.Result;
+        Assert.Empty(result.Landed);
+        Assert.Empty(outcome.Commits);
         Assert.Equal("T2", result.Failure!.TaskId);
+        Assert.Empty(result.Failure.Files);
         Assert.Contains("no ticket", result.Failure.GitOutput);
-        Assert.Equal(new[] { "T3" }, result.NotAttempted);
-        Assert.Equal(1, Count(repo, $"{request.EpicTipBefore}..epic/E1"));
-        Assert.Equal(repo.Sha(request.TestedCommit + "~2^{tree}"), repo.Sha("epic/E1^{tree}"));
+        Assert.DoesNotContain('\n', result.Failure.GitOutput);
+        Assert.Equal(new[] { "T1", "T3" }, result.NotAttempted);
+        Assert.Equal(request.EpicTipBefore, result.EpicTipAfter);
+        Assert.Equal(request.EpicTipBefore, repo.Sha("epic/E1"));
     }
 
     [Fact]
-    public void StackMemberWithoutTicket_ReturnsWholeUnit()
+    public void StackMemberWithoutTicket_LandsNothing()
     {
         using var repo = Repo();
         repo.Branch("task/9931-a", "epic/E1", ("a.txt", "a\n"));
@@ -48,10 +53,27 @@ public class SquashLanderEdgeTests
         repo.Branch("task/9934-d", "epic/E1", ("d.txt", "d\n"));
         var request = Tested(repo, Worktree(repo), T("T1", "task/9931-a"), T("T2", "task/9932-b"), T("T3", "task/T3", "T2"), T("T4", "task/9934-d"));
         var result = Land(request, new SquashConfig { RequireTicket = true }).Result;
-        Assert.Equal(new[] { "T1" }, result.Landed.Select(l => l.TaskId));
+        Assert.Empty(result.Landed);
         Assert.Equal("T3", result.Failure!.TaskId);
-        Assert.Equal(new[] { "T2", "T4" }, result.NotAttempted);
+        Assert.Equal(new[] { "T1", "T2", "T4" }, result.NotAttempted);
+        Assert.Equal(request.EpicTipBefore, repo.Sha("epic/E1"));
+    }
+
+    [Fact]
+    public void RequireTicket_TicketlessNoOpTask_LandsEmpty()
+    {
+        // T2 adds exactly what T1 already added: its merge changes nothing, so no commit (and no ticket) is needed.
+        using var repo = Repo();
+        repo.Branch("task/9931-a", "epic/E1", ("a.txt", "a\n"));
+        repo.Branch("task/T2", "epic/E1", ("a.txt", "a\n"));
+        var request = Tested(repo, Worktree(repo), T("T1", "task/9931-a"), T("T2"));
+        var outcome = Land(request, new SquashConfig { RequireTicket = true });
+        Assert.Null(outcome.Result.Failure);
+        Assert.Empty(outcome.Result.NotAttempted);
+        Assert.Equal(new[] { "T1", "T2" }, outcome.Result.Landed.Select(l => l.TaskId));
+        Assert.Equal(new[] { false, true }, outcome.Commits.Select(c => c.Empty));
         Assert.Equal(1, Count(repo, $"{request.EpicTipBefore}..epic/E1"));
+        Assert.Equal(repo.Sha(request.TestedCommit + "^{tree}"), repo.Sha("epic/E1^{tree}"));
     }
 
     [Fact]

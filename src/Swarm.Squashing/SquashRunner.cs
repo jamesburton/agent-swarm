@@ -120,7 +120,7 @@ public sealed class SquashRunner(ToolContext context, Progress progress)
             return result with
             {
                 EpicTipAfter = outcome.Result.EpicTipAfter,
-                Ticket = squash.Ticket,
+                Ticket = squash.Ticket.Length == 0 ? null : squash.Ticket,
                 Commit = squash.Commit,
                 Empty = squash.Empty,
                 Note = squash.Empty ? "nothing to land: the epic already has this change" : null,

@@ -153,6 +153,17 @@ public class IntegrationWorktreeTests
     }
 
     [Fact]
+    public void RebaseCopy_OntoTheTasksOwnBranch_ThrowsAndLeavesItAlone()
+    {
+        var (repo, git, wt) = Setup();
+        using var _ = repo;
+        repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
+        var worker = repo.Sha("task/T2");
+        Assert.Throws<ArgumentException>(() => wt.RebaseCopy(T("T2"), git.RevParse("refs/heads/epic/E1"), "task/T2"));
+        Assert.Equal(worker, repo.Sha("task/T2"));
+    }
+
+    [Fact]
     public void EnsureEpic_MissingOrCheckedOut_IsBadInput()
     {
         using var repo = TempRepo.Create();

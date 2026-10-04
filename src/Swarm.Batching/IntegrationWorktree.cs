@@ -132,8 +132,14 @@ public sealed class IntegrationWorktree
     /// <param name="epicTip">Rebase target.</param>
     /// <param name="copyBranch">Copy ref name, e.g. <c>rebased/E1/T2</c>.</param>
     /// <returns>Clean or not, with git's output; on conflict the copy is deleted.</returns>
+    /// <exception cref="ArgumentException"><paramref name="copyBranch"/> is the task's own branch (it would be rewritten or deleted).</exception>
     public RebaseOutcome RebaseCopy(TaskSpec task, string epicTip, string copyBranch)
     {
+        if (string.Equals(copyBranch, task.Branch, StringComparison.Ordinal))
+        {
+            throw new ArgumentException($"copy branch '{copyBranch}' is the task's own branch; the worker branch is never modified", nameof(copyBranch));
+        }
+
         ResetTo(epicTip);
         Git.Run("checkout", "-q", "-f", "-B", copyBranch, task.BranchRef);
         var r = Git.Try("-c", "rebase.updateRefs=false", "rebase", epicTip);

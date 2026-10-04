@@ -11,18 +11,20 @@ public sealed class GitRunner
     };
 
     readonly IReadOnlyList<string> extraConfig;
+    readonly IReadOnlyDictionary<string, string?> environment;
 
     /// <summary>Initializes a new instance of the <see cref="GitRunner"/> class.</summary>
     /// <param name="workingDirectory">Directory git runs in.</param>
     public GitRunner(string workingDirectory)
-        : this(workingDirectory, [])
+        : this(workingDirectory, [], Env)
     {
     }
 
-    GitRunner(string workingDirectory, IReadOnlyList<string> extraConfig)
+    GitRunner(string workingDirectory, IReadOnlyList<string> extraConfig, IReadOnlyDictionary<string, string?> environment)
     {
         WorkingDirectory = Path.GetFullPath(workingDirectory);
         this.extraConfig = extraConfig;
+        this.environment = environment;
     }
 
     /// <summary>Gets the configuration passed to every git call (no CRLF conversion, long paths, unquoted names).</summary>
@@ -40,20 +42,34 @@ public sealed class GitRunner
     /// <summary>Gets the working directory.</summary>
     public string WorkingDirectory { get; }
 
-    /// <summary>Returns a runner that commits with <see cref="ToolIdentity"/>.</summary>
+    /// <summary>Returns a runner that commits with <see cref="ToolIdentity"/> (the environment is kept).</summary>
     /// <returns>The new runner.</returns>
-    public GitRunner WithIdentity() => new(WorkingDirectory, ToolIdentity);
+    public GitRunner WithIdentity() => new(WorkingDirectory, ToolIdentity, environment);
 
-    /// <summary>Returns a runner with the same configuration in another directory.</summary>
+    /// <summary>Returns a runner with the same configuration and environment in another directory.</summary>
     /// <param name="workingDirectory">The directory.</param>
     /// <returns>The new runner.</returns>
-    public GitRunner At(string workingDirectory) => new(workingDirectory, extraConfig);
+    public GitRunner At(string workingDirectory) => new(workingDirectory, extraConfig, environment);
+
+    /// <summary>Returns a runner that also sets, or with a null value removes, environment variables for git.</summary>
+    /// <param name="variables">Variables to set (null value = remove).</param>
+    /// <returns>The new runner.</returns>
+    public GitRunner WithEnvironment(IReadOnlyDictionary<string, string?> variables)
+    {
+        var merged = new Dictionary<string, string?>(environment, StringComparer.Ordinal);
+        foreach (var (key, value) in variables)
+        {
+            merged[key] = value;
+        }
+
+        return new(WorkingDirectory, extraConfig, merged);
+    }
 
     /// <summary>Runs git and returns the raw result.</summary>
     /// <param name="args">Git arguments.</param>
     /// <returns>The result, whatever the exit code.</returns>
     public ProcessResult Try(params string[] args) =>
-        ProcessRunner.Run("git", [.. BaseConfig, .. extraConfig, .. args], WorkingDirectory, new ProcessRunOptions { EnvironmentVariables = Env });
+        ProcessRunner.Run("git", [.. BaseConfig, .. extraConfig, .. args], WorkingDirectory, new ProcessRunOptions { EnvironmentVariables = environment });
 
     /// <summary>Runs git and requires success.</summary>
     /// <param name="args">Git arguments.</param>

@@ -284,8 +284,9 @@ public sealed class SlotSemaphore
                     return null;
                 }
 
-                // A delete-pending file reports access denied and not-exists; give it a moment to vanish.
-                if (e is UnauthorizedAccessException && attempt < pendingRetries)
+                // Not there now: the holder released between our failed create and the check, or the file is
+                // delete-pending (access denied, not-exists). Retry the create whatever the exception type.
+                if (attempt < pendingRetries)
                 {
                     Thread.Sleep(20);
                     continue;

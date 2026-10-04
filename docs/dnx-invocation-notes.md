@@ -1,6 +1,6 @@
 ---
 created: 2026-10-03
-updated: 2026-10-03
+updated: 2026-10-04
 status: current
 ---
 
@@ -51,3 +51,16 @@ Each row states only what was run. `FEED` = the folder feed, `f.md` = a valid de
 ## Gotcha: stale tool cache
 
 dnx extracts packages to `~/.nuget/packages/<id>/<version>` (here `~/.nuget/packages/swarm.cli/0.1.1`) and reuses that folder. Re-packing the same version with changed code is not picked up. Verified: after dnx had run `0.1.1`, I re-packed `0.1.1` with a different informational version (`-p:Version=0.1.1 -p:InformationalVersion=repacked-different-code`) into the same feed. `dnx Swarm.Cli@0.1.1 --add-source FEED -- --version` still printed `0.1.1` (old code), while a fresh `0.1.2` packed with the same change printed `repacked-different-code`. Safe fix: bump the version for every re-pack (deleting the cached folder also works but was not tried).
+
+## Companion tools
+
+`Swarm.TestGate` and `Swarm.Batch` (both NOT REAL placeholder ids, version 0.1.1, packed with `dotnet pack -c Release -o FEED` into a local feed) were run through `dnx.cmd` in Git Bash with `--add-source FEED`, no `--yes`, on 2026-10-04. Only these runs were done; PowerShell and a published feed were not tried. Tool reference: [batch-tools.md](batch-tools.md).
+
+| # | Command (after `dnx.cmd`) | Observed |
+|---|---------------------------|----------|
+| 1 | `Swarm.TestGate@0.1.1 --add-source FEED -- --version` | prints `0.1.1`, exit 0 (9 s) |
+| 2 | `Swarm.TestGate@0.1.1 --add-source FEED -- run -- git --version` | one JSON line with `"exitCode":0`, exit 0 (10 s) |
+| 3 | `Swarm.TestGate@0.1.1 --add-source FEED -- status` | `{"schemaVersion":1,...,"slots":1,"holders":[]}`, exit 0 (9 s) |
+| 4 | `Swarm.Batch@0.1.1 --add-source FEED -- run ../smoke-a-tasks.json` (scratch repo with an `epic/E1` branch and one task branch) | stderr progress, one summary line with `"tasksLanded":1,"exitCode":0`, exit 0 (23 s including first-run extraction); `git show epic/E1:one.txt` printed `one` |
+
+Each call took about 9 s on a loaded machine. Both tools were bumped to 0.1.1 so a stale `~/.nuget/packages/<id>/<version>` cache could never serve old code (see the stale-cache gotcha above). Packing prints warning NU5039 (no readme); no metadata was added.

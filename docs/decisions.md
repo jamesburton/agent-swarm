@@ -1,6 +1,6 @@
 ---
 created: 2026-10-02
-updated: 2026-10-02
+updated: 2026-10-04
 status: current
 ---
 # Decision log
@@ -78,3 +78,20 @@ Closed with evidence in `spikes/01-batched-tests/b/RESULTS.md`: measured serial 
 ## Spike 2 completion (2026-10-03)
 
 Real Workflow dry runs (2 runs, 10 agents total) proved the control flow, including escalation to an expert. Eight renderer/design findings are recorded in `spikes/02-definition-renderer/README.md`; the production plan must address them. Key design consequences: (1) deterministic tool steps (testgate, batch, squash) run outside the Workflow script (it cannot exec; an LLM gate costs ~31k tokens), the workflow only fans out LLM work and reads gate evidence; (2) tool references must be explicit pinned package ids, never bare names; (3) no `--yes` on `dnx`; (4) generated agent files must exist at session start.
+
+## Testgate + batch production plan (2026-10-04)
+
+Plan: [2026-10-03-testgate-batch.md](plans/2026-10-03-testgate-batch.md). Tool reference: [batch-tools.md](batch-tools.md). Confirms the remaining spike-1 promotion defaults:
+
+| Decision | Choice |
+|---|---|
+| Exit codes | 0 ok, 1 returned, 2 usage/config, 3 bad input, 4 environment, 5 gate wait timeout; testgate maps a failed child to 1 (child code in JSON). |
+| Exit after rebase | 0 when every task landed, including rebased copies. |
+| Config | `.swarm/batch.json` in the main worktree; flags win; strict keys; validated on load. |
+| JSON schema | `schemaVersion: 1` everywhere; `returned.jsonl` append-only, last line per task wins. The "Spike 1 completion" entry says `returned.json`: it was renamed `returned.jsonl` (one appended line per change). |
+| Logging | stderr progress with `--verbosity`; `events.jsonl` per run; per-suite logs; keep the newest 20 finished runs. |
+| Gate scope | One machine, lock files in the state dir; Windows closes the two-reclaimer race. |
+| Wait policy | Polling, no FIFO; `maxWaitSec` 3600 by default, then exit 5. |
+| Lander | `ILander` seam; default fast-forward to the tested commit until the squash lander (Plan B). |
+| `--base` flag | The PROMOTION.md `batch run --base` flag was dropped: `baseBranch` stays a config key and is consumed only by epic creation in a later plan (Plan C). |
+| Packaging | Placeholder ids `Swarm.TestGate` / `Swarm.Batch`, version 0.1.1, built and run through `dnx` from a local feed only; nothing is published and a real id prefix plus license/authors/readme metadata are still to be decided. |

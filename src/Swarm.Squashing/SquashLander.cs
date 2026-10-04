@@ -33,13 +33,19 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
     /// <summary>Name of the temporary message file in the worktree's git dir.</summary>
     public const string MessageFileName = "SWARM_SQUASH_MSG";
 
-    static readonly Encoding Utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    // Total characters of excluded shas per git call; leaves ample room under Windows' 32,767-character command line.
+    const int MaxExclusionArgChars = 24_000;
+
+    static readonly Encoding Utf8 =new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     // Reflog subjects `git checkout -B <copy> refs/heads/<worker>` writes (git's branch.c), newest first in `reflog show`.
     static readonly string[] CopyReflogPrefixes = ["branch: Created from refs/heads/", "branch: Reset to refs/heads/"];
 
     /// <inheritdoc/>
     public string Name => LanderNames.Squash;
+
+    /// <summary>Gets a test seam that replaces the rebuilt tip just before the tree check (proves the check guards the move).</summary>
+    internal Func<string, string>? RebuiltTipOverride { get; init; }
 
     /// <inheritdoc/>
     /// <exception cref="ToolException">Contract violation, tree mismatch or epic moved (exit code 4).</exception>
@@ -53,8 +59,9 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
     {
         var links = TestedChain.Read(request).ToDictionary(l => l.Task.Id, StringComparer.Ordinal);
         var units = TaskUnits.Build(request.Tasks.Select(t => new TaskSpec(t.Id, t.Branch, t.DependsOn)).ToList());
+        EnsureRequestOrder(request, units);
         var context = new MessageContext(request.Epic, request.Batch, request.RunId);
-        var landedSources = LandedSources(request.Repo, request.EpicTipBefore);
+        var landedSources = Chunk(LandedSources(request.Repo, request.EpicTipBefore));
         var messageFile = Path.Combine(request.Worktree.Run("rev-parse", "--absolute-git-dir"), MessageFileName);
         var tip = request.EpicTipBefore;
         var tree = request.Repo.Run("rev-parse", tip + "^{tree}");
@@ -91,8 +98,12 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
             SharedFile.Retry(() => File.Delete(messageFile));
         }
 
-        // Unreferenced commits are all that exists until here; nothing moves unless the tree is the tested one.
-        var expected = landed.Count == 0 ? request.EpicTipBefore : links[landed[^1].TaskId].After;
+        // Unreferenced commits are all that exists until here; nothing moves unless the tree is the tested one: the
+        // whole tested commit when nothing failed, else the chain state after the last landed task.
+        var expected = failure is null ? request.TestedCommit
+            : landed.Count == 0 ? request.EpicTipBefore
+            : links[landed[^1].TaskId].After;
+        tip = RebuiltTipOverride?.Invoke(tip) ?? tip;
         TreeGuard.Ensure(request.Repo, tip, expected, $"squash lander, batch {request.Batch}");
         if (!string.Equals(tip, request.EpicTipBefore, StringComparison.OrdinalIgnoreCase))
         {
@@ -123,18 +134,45 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
         return task.Branch;
     }
 
-    static IReadOnlyList<SourceCommit> SourceCommits(GitRunner repo, ChainLink link, IReadOnlyList<string> landedSources)
+    // A link's new commits, minus everything reachable from an already-landed source. The exclusions are passed in
+    // argv-bounded chunks (GitRunner has no stdin, so no --stdin): a commit is excluded when it is reachable from ANY
+    // excluded sha, i.e. it survives only if every chunk's run returns it. Order is that of the first run.
+    static IReadOnlyList<SourceCommit> SourceCommits(GitRunner repo, ChainLink link, IReadOnlyList<IReadOnlyList<string>> landedSourceChunks)
     {
         if (link.Source is null)
         {
             return [];
         }
 
-        var args = new List<string> { "log", "--reverse", "--no-merges", "--ignore-missing", "--format=%H%x1f%an%x1f%ae%x1f%s", $"{link.Before}..{link.Source}" };
-        if (landedSources.Count > 0)
+        var range = $"{link.Before}..{link.Source}";
+        if (landedSourceChunks.Count == 0)
+        {
+            return LogCommits(repo, range, []);
+        }
+
+        var commits = LogCommits(repo, range, landedSourceChunks[0]);
+        foreach (var chunk in landedSourceChunks.Skip(1))
+        {
+            if (commits.Count == 0)
+            {
+                break;
+            }
+
+            var kept = LogCommits(repo, range, chunk).Select(c => c.Sha).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            commits = commits.Where(c => kept.Contains(c.Sha)).ToList();
+        }
+
+        return commits;
+    }
+
+    static List<SourceCommit> LogCommits(GitRunner repo, string range, IReadOnlyList<string> exclude)
+    {
+        // --ignore-missing: a recorded source may have been garbage-collected since it landed.
+        var args = new List<string> { "log", "--reverse", "--no-merges", "--ignore-missing", "--format=%H%x1f%an%x1f%ae%x1f%s", range };
+        if (exclude.Count > 0)
         {
             args.Add("--not");
-            args.AddRange(landedSources);
+            args.AddRange(exclude);
         }
 
         return repo.Lines([.. args])
@@ -142,6 +180,49 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
             .Where(p => p.Length == 4)
             .Select(p => new SourceCommit(p[0], p[1], p[2], p[3]))
             .ToList();
+    }
+
+    // Splits the exclusion shas so one git call's argv stays well under Windows' 32,767-character command line.
+    static IReadOnlyList<IReadOnlyList<string>> Chunk(IReadOnlyList<string> shas)
+    {
+        var chunks = new List<IReadOnlyList<string>>();
+        var current = new List<string>();
+        var length = 0;
+        foreach (var sha in shas)
+        {
+            if (current.Count > 0 && length + sha.Length + 1 > MaxExclusionArgChars)
+            {
+                chunks.Add(current);
+                (current, length) = ([], 0);
+            }
+
+            current.Add(sha);
+            length += sha.Length + 1;
+        }
+
+        if (current.Count > 0)
+        {
+            chunks.Add(current);
+        }
+
+        return chunks;
+    }
+
+    // The ILander contract: stacks are contiguous and in request order. The tested chain is in request order and the
+    // commits are built per unit, so any other shape would credit one task with another's content.
+    static void EnsureRequestOrder(LandRequest request, IReadOnlyList<TaskUnit> units)
+    {
+        var flattened = units.SelectMany(u => u.Ids).ToList();
+        for (var i = 0; i < request.Tasks.Count; i++)
+        {
+            if (!string.Equals(flattened[i], request.Tasks[i].Id, StringComparison.Ordinal))
+            {
+                throw new ToolException(
+                    ExitCodes.Environment,
+                    $"squash lander, batch {request.Batch}: task '{flattened[i]}' is out of order: its stack is not contiguous in request order (position {i + 1} is '{request.Tasks[i].Id}'); nothing landed",
+                    "lander contract: ILander requires contiguous stacks in request order");
+            }
+        }
     }
 
     static bool IsSha(string s) => s.Length is 40 or 64 && s.All(Uri.IsHexDigit);
@@ -163,7 +244,8 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
     // contains that branch's original commits; excluding them keeps the author and the commit list to the new work.
     IReadOnlyList<string> LandedSources(GitRunner repo, string epicTip)
     {
-        var args = new List<string> { "log", "--first-parent", "--format=%(trailers:key=Source-Commit,valueonly)", epicTip };
+        // --grep only skips commits without the trailer line (cheap bound when baseBranch is null); the set is unchanged.
+        var args = new List<string> { "log", "--first-parent", "--regexp-ignore-case", "--grep=^Source-Commit:", "--format=%(trailers:key=Source-Commit,valueonly)", epicTip };
         if (baseBranch is not null && repo.RefExists(GitRunner.HeadsRef(baseBranch)))
         {
             args.Add("--not");
@@ -173,7 +255,7 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
         return repo.Lines([.. args]).Where(IsSha).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    UnitDraft LandUnit(LandRequest request, TaskUnit unit, IReadOnlyDictionary<string, ChainLink> links, IReadOnlyList<string> landedSources, MessageContext context, string messageFile, string tip, string tree)
+    UnitDraft LandUnit(LandRequest request, TaskUnit unit, IReadOnlyDictionary<string, ChainLink> links, IReadOnlyList<IReadOnlyList<string>> landedSources,MessageContext context, string messageFile, string tip, string tree)
     {
         var landed = new List<LandedTask>();
         var commits = new List<SquashCommit>();

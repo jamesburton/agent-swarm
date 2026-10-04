@@ -1,4 +1,7 @@
+using System.Globalization;
+using System.Text;
 using Swarm.Batching;
+using Swarm.Git;
 using Swarm.RunState;
 using Swarm.Squashing;
 using Swarm.Tools.Tests.Support;
@@ -92,6 +95,94 @@ public class SquashLanderEdgeTests
         Assert.Contains("foo.cs", names);
         Assert.DoesNotContain("Foo.cs", names);
         Assert.Equal(repo.Sha(request.TestedCommit + "^{tree}"), repo.Sha("epic/E1^{tree}"));
+    }
+
+    [Fact]
+    public void NonContiguousStack_ThrowsContractErrorAndLeavesEpic()
+    {
+        using var repo = Repo();
+        repo.Branch("task/T1", "epic/E1", ("a.txt", "a\n"));
+        repo.Branch("task/T2", "epic/E1", ("b.txt", "b\n"));
+        repo.Branch("task/T3", "task/T1", ("c.txt", "c\n"));
+        var wt = Worktree(repo);
+        var git = new GitRunner(repo.Root);
+        var tip = git.RevParse("refs/heads/epic/E1");
+
+        // The chain is in request order T1, T2, T3, but T3 is stacked on T1: the stack is not contiguous.
+        var tested = wt.Integrate(tip, TaskUnits.Build([T("T1"), T("T2"), T("T3")])).Head;
+        var tasks = new[] { new LandTask("T1", "task/T1", []), new LandTask("T2", "task/T2", []), new LandTask("T3", "task/T3", ["T1"]) };
+        var request = new LandRequest(git, wt.Git, "E1", "epic/E1", tip, tested, tasks, 3, "run-1");
+        var e = Assert.Throws<ToolException>(() => Land(request));
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("'T3'", e.Message);
+        Assert.DoesNotContain('\n', e.Message);
+        Assert.Equal(tip, repo.Sha("epic/E1"));
+    }
+
+    [Fact]
+    public void ContiguousStackThenSingle_LandsTestedTree()
+    {
+        using var repo = Repo();
+        repo.Branch("task/T1", "epic/E1", ("a.txt", "a\n"));
+        repo.Branch("task/T2", "task/T1", ("b.txt", "b\n"));
+        repo.Branch("task/T3", "epic/E1", ("c.txt", "c\n"));
+        var request = Tested(repo, Worktree(repo), T("T1"), T("T2", "task/T2", "T1"), T("T3"));
+        var result = Land(request).Result;
+        Assert.Null(result.Failure);
+        Assert.Equal(new[] { "T1", "T2", "T3" }, result.Landed.Select(l => l.TaskId));
+        Assert.Equal(3, Count(repo, $"{request.EpicTipBefore}..epic/E1"));
+        Assert.Equal(repo.Sha(request.TestedCommit + "^{tree}"), repo.Sha("epic/E1^{tree}"));
+    }
+
+    [Fact]
+    public void TreeGuard_RunsBeforeTheEpicMoves()
+    {
+        using var repo = Repo();
+        repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
+        var request = Tested(repo, Worktree(repo), T("T1"));
+
+        // A rebuilt tip whose tree is not the tested one must never reach the epic.
+        var lander = new SquashLander(new SquashConfig(), "main")
+        {
+            RebuiltTipOverride = tip => repo.Git("commit-tree", repo.Sha("epic/E1^{tree}"), "-p", tip, "-m", "tampered"),
+        };
+        var e = Assert.Throws<ToolException>(() => lander.Execute(request));
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("differs from the tested tree", e.Message);
+        Assert.Equal(request.EpicTipBefore, repo.Sha("epic/E1"));
+    }
+
+    [Fact]
+    public void ManyLandedSources_ChunkedExclusionStillCreditsOnlyNewCommits()
+    {
+        using var repo = Repo();
+        var wt = Worktree(repo);
+        repo.Git("branch", "task/T1", "epic/E1");
+        CommitAs(repo, "task/T1", "Ada", "ada@example.invalid", "add a", ("a.txt", "a\n"));
+        Land(Tested(repo, wt, T("T1")));
+
+        // 1,500 well-formed but absent Source-Commit shas (~61,500 argv chars): far past one exclusion chunk and the
+        // 32,767-character Windows command line; the real T1 source lands in the last chunk.
+        var message = new StringBuilder("bulk import\n\n");
+        for (var i = 1; i <= 1500; i++)
+        {
+            message.Append("Source-Commit: ").Append(i.ToString("x40", CultureInfo.InvariantCulture)).Append('\n');
+        }
+
+        var messageFile = Path.Combine(repo.Sandbox, "bulk-msg.txt");
+        File.WriteAllText(messageFile, message.ToString());
+        var bulk = repo.Git("commit-tree", repo.Sha("epic/E1^{tree}"), "-p", repo.Sha("epic/E1"), "-F", messageFile);
+        repo.Git("update-ref", "refs/heads/epic/E1", bulk);
+        Assert.Equal(1500, Trailers(repo, "epic/E1", "Source-Commit").Split(',').Length);
+
+        repo.Git("branch", "task/T2", "task/T1");
+        CommitAs(repo, "task/T2", "Bob", "bob@example.invalid", "add b", ("b.txt", "b\n"));
+        var request = Tested(repo, wt, T("T2"));
+        var result = Land(request).Result;
+        Assert.Null(result.Failure);
+        Assert.Equal("Bob", repo.Git("log", "-1", "--format=%an", "epic/E1"));
+        Assert.DoesNotContain("Ada", repo.Git("log", "-1", "--format=%B", "epic/E1"));
+        Assert.Equal("T2: add b", repo.Git("log", "-1", "--format=%s", "epic/E1"));
     }
 
     [Fact]

@@ -5,4 +5,7 @@
     <ProjectReference Include="..\Swarm.RunState\Swarm.RunState.csproj" />
     <ProjectReference Include="..\Swarm.Batching\Swarm.Batching.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Swarm.Tools.Tests" />
+  </ItemGroup>
 </Project>

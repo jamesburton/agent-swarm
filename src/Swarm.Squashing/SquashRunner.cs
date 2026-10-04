@@ -86,7 +86,23 @@ public sealed class SquashRunner(ToolContext context, Progress progress)
         var worktree = new IntegrationWorktree(main, worktreePath);
         worktree.Ensure(config.EpicBranch);
         var result = new SquashRunResult(SwarmJson.SchemaVersion, runId, request.TaskId, request.Branch, config.Epic, config.EpicBranch, tip, tip, null, null, false, ExitCodes.Ok, null);
+        SquashRunResult landed;
         try
+        {
+            landed = Land();
+        }
+        catch
+        {
+            // The error that stopped the run is what the user needs; a failed reset is only reported next to it.
+            ResetWorktree(worktree, config.EpicBranch, worktreePath);
+            throw;
+        }
+
+        // A failed reset after landing is only a warning: the epic already moved and the JSON line must still be printed.
+        ResetWorktree(worktree, config.EpicBranch, worktreePath);
+        return landed;
+
+        SquashRunResult Land()
         {
             var spec = new TaskSpec(request.TaskId, request.Branch, []);
             var integration = worktree.Integrate(tip, TaskUnits.Build([spec]));
@@ -111,7 +127,7 @@ public sealed class SquashRunner(ToolContext context, Progress progress)
             if (squash.Empty && main.RevParse(GitRunner.HeadsRef(config.EpicBranch)) != tip)
             {
                 // An empty land makes no update-ref (no compare-and-swap), so a concurrent epic move would go unnoticed.
-                throw new ToolException(ExitCodes.Environment, $"epic '{config.EpicBranch}' moved during the run");
+                throw new ToolException(ExitCodes.Environment, $"epic '{config.EpicBranch}' moved during the run", "another writer updated the epic; re-run squash run");
             }
 
             progress.Info(squash.Empty
@@ -126,9 +142,20 @@ public sealed class SquashRunner(ToolContext context, Progress progress)
                 Note = squash.Empty ? "nothing to land: the epic already has this change" : null,
             };
         }
-        finally
+    }
+
+    // Leaves the integration worktree detached at the epic. A failure here (e.g. a file held open on Windows) is only
+    // a warning: it must neither hide the error that stopped the run nor turn a landed run into an error, and the
+    // next run's IntegrationWorktree.Ensure cleans the worktree anyway.
+    void ResetWorktree(IntegrationWorktree worktree, string epicBranch, string worktreePath)
+    {
+        try
         {
-            worktree.ResetTo(GitRunner.HeadsRef(config.EpicBranch));
+            worktree.ResetTo(GitRunner.HeadsRef(epicBranch));
+        }
+        catch (ToolException e)
+        {
+            progress.Warn($"could not reset the integration worktree {worktreePath}: {e.Message}");
         }
     }
 }

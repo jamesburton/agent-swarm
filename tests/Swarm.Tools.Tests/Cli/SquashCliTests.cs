@@ -205,5 +205,59 @@ public class SquashCliTests
         var ex = Assert.Throws<ToolException>(() => runner.Run(new SquashRunRequest("T1", "task/9933-parser", null, null)));
         Assert.Equal(ExitCodes.Environment, ex.ExitCode);
         Assert.Contains("moved during the run", ex.Message);
+        Assert.NotNull(ex.Hint);
+    }
+
+    [Fact]
+    public void ResetFailure_DoesNotMaskTheOriginalError()
+    {
+        using var repo = RepoWithParserBranch();
+        Assert.Equal(ExitCodes.Ok, Run(repo, "run", "--task", "T1", "--branch", "task/9933-parser", "--config", Config(repo)).Code);
+        var stderr = new StringWriter();
+        var runner = Runner(repo, stderr, () =>
+        {
+            repo.Git("update-ref", "refs/heads/epic/E1", repo.Sha("main"));
+            LockIntegrationIndex(repo);
+        });
+        var ex = Assert.Throws<ToolException>(() => runner.Run(new SquashRunRequest("T1", "task/9933-parser", null, null)));
+        Assert.Contains("moved during the run", ex.Message);
+        Assert.Contains("warning: could not reset the integration worktree", stderr.ToString());
+    }
+
+    [Fact]
+    public void ResetFailure_AfterLanding_IsOnlyAWarning()
+    {
+        using var repo = RepoWithParserBranch();
+        var before = repo.Sha("epic/E1");
+        var stderr = new StringWriter();
+        var result = Runner(repo, stderr, () => LockIntegrationIndex(repo)).Run(new SquashRunRequest("T1", "task/9933-parser", null, null));
+        Assert.Equal(ExitCodes.Ok, result.ExitCode);
+        Assert.Equal(repo.Sha("epic/E1"), result.Commit);
+        Assert.Equal(before, repo.Sha("epic/E1~1"));
+        var warning = Assert.Single(stderr.ToString().Split('\n'), l => l.StartsWith("warning: ", StringComparison.Ordinal));
+        Assert.Contains("could not reset the integration worktree", warning);
+    }
+
+    [Fact]
+    public void Run_EpicFlagOverridesConfig()
+    {
+        using var repo = RepoWithParserBranch();
+        var (code, output, err) = Run(repo, "run", "--task", "T1", "--branch", "task/9933-parser", "--config", Config(repo), "--epic", "E9");
+        Assert.Equal(ExitCodes.BadInput, code);
+        Assert.Contains("epic branch 'epic/E9' not found", err);
+        Assert.Equal("", output);
+    }
+
+    static SquashRunner Runner(TempRepo repo, TextWriter stderr, Action afterLand)
+    {
+        var context = new ToolContext(RepoLocator.Locate(repo.Root), TestConfig.For(repo), new StateLayout(repo.StateDir), Verbosity.Quiet);
+        return new SquashRunner(context, new Progress(stderr, Verbosity.Quiet)) { AfterLand = afterLand };
+    }
+
+    // A held index.lock makes the integration worktree's `git checkout` (ResetTo) fail.
+    static void LockIntegrationIndex(TempRepo repo)
+    {
+        var gitDir = TempRepo.RunGit(Path.Combine(repo.WorktreeRoot, "int-E1"), "rev-parse", "--absolute-git-dir");
+        File.WriteAllText(Path.Combine(gitDir, "index.lock"), "");
     }
 }

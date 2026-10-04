@@ -36,7 +36,7 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
     // Total characters of excluded shas per git call; leaves ample room under Windows' 32,767-character command line.
     const int MaxExclusionArgChars = 24_000;
 
-    static readonly Encoding Utf8 =new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    static readonly Encoding Utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     // Reflog subjects `git checkout -B <copy> refs/heads/<worker>` writes (git's branch.c), newest first in `reflog show`.
     static readonly string[] CopyReflogPrefixes = ["branch: Created from refs/heads/", "branch: Reset to refs/heads/"];
@@ -266,7 +266,7 @@ public sealed class SquashLander(SquashConfig config, string? baseBranch = null,
         return repo.Lines([.. args]).Where(IsSha).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    UnitDraft LandUnit(LandRequest request, TaskUnit unit, IReadOnlyDictionary<string, ChainLink> links, IReadOnlyList<IReadOnlyList<string>> landedSources,MessageContext context, string messageFile, string tip, string tree)
+    UnitDraft LandUnit(LandRequest request, TaskUnit unit, IReadOnlyDictionary<string, ChainLink> links, IReadOnlyList<IReadOnlyList<string>> landedSources, MessageContext context, string messageFile, string tip, string tree)
     {
         var landed = new List<LandedTask>();
         var commits = new List<SquashCommit>();

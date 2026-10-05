@@ -197,6 +197,49 @@ public class WorktreeManagerTests
         Assert.False(e.Dirty);
     }
 
+    [Fact]
+    public void List_WorktreeWhoseStatusFails_IsReportedWithErrorAndDoesNotAbortListing()
+    {
+        using var repo = Repo();
+        var m = Manager(repo);
+        var broken = m.Create(new CreateRequest("1", "x", Epic, null));
+        var fine = m.Create(new CreateRequest("2", "y", Epic, null));
+
+        CorruptGitFile(broken.Path);
+        var list = m.List().ToDictionary(e => e.Ticket!);
+        Assert.Equal(2, list.Count);
+        Assert.Null(list["2"].Error);
+        var e = list["1"];
+        Assert.Contains("invalid gitfile", e.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", e.Error, StringComparison.Ordinal);
+        Assert.Equal((true, false, null, true, false), (e.Dirty, e.Empty, e.MergedVia, e.Managed, e.Missing));
+        Assert.Equal(("1", Epic, true), (e.Ticket, e.Base, e.BaseExists));
+    }
+
+    [Fact]
+    public void List_RevListFails_ReportsErrorInsteadOfMergeState()
+    {
+        using var repo = Repo();
+        var m = Manager(repo);
+        var r = m.Create(new CreateRequest("1", "x", Epic, null));
+
+        // A bogus fork point makes rev-list fail; the entry must not claim any merge state.
+        repo.Git("config", $"branch.{r.Branch}.swarm-fork-point", new string('0', 40));
+        var e = Assert.Single(m.List());
+        Assert.NotNull(e.Error);
+        Assert.Equal((true, null), (e.Dirty, e.MergedVia));
+    }
+
+    /// <summary>Replaces a worktree's .git file with garbage: git still lists it (not prunable) but `git status` there fails.</summary>
+    /// <param name="worktree">Worktree directory.</param>
+    internal static void CorruptGitFile(string worktree)
+    {
+        // Git for Windows marks the file hidden, which File.WriteAllText refuses to overwrite.
+        var file = Path.Combine(worktree, ".git");
+        File.Delete(file);
+        File.WriteAllText(file, "garbage\n");
+    }
+
     static void WaitForWorktree(string path)
     {
         var deadline = DateTime.UtcNow.AddSeconds(15);

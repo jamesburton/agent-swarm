@@ -37,9 +37,13 @@ public sealed record WorktreeCreateResult(int SchemaVersion, bool Created, strin
 /// <param name="AheadOfBase">Commits since the fork point.</param>
 /// <param name="MergedVia">A <see cref="MergeVia"/> value, or null.</param>
 /// <param name="Managed">True when created by this tool (branch metadata present).</param>
+/// <param name="Error">
+/// One-line reason the worktree's state could not be assessed, or null. When set, the state fields are conservative
+/// (<c>Dirty</c> true, <c>Empty</c> false, <c>AheadOfBase</c> 0, <c>MergedVia</c> null) and the worktree must be kept.
+/// </param>
 public sealed record WorktreeEntry(
     string Path, string Branch, string? Ticket, string? Base, bool BaseExists, string? Head, bool Locked, string? LockReason,
-    bool Missing, bool Dirty, bool Empty, int AheadOfBase, string? MergedVia, bool Managed);
+    bool Missing, bool Dirty, bool Empty, int AheadOfBase, string? MergedVia, bool Managed, string? Error = null);
 
 /// <summary>stdout of <c>worktree list</c>.</summary>
 /// <param name="SchemaVersion">Always <see cref="SwarmJson.SchemaVersion"/>.</param>
@@ -160,7 +164,10 @@ public sealed class WorktreeManager
     /// <summary>Lists worktrees with their state.</summary>
     /// <param name="baseBranch">Only managed worktrees on this base, or null for all bases.</param>
     /// <param name="all">Also include unmanaged worktrees on a branch (ignored when <paramref name="baseBranch"/> is set).</param>
-    /// <returns>The entries in git's order.</returns>
+    /// <returns>
+    /// The entries in git's order. A worktree whose state cannot be read (e.g. a corrupt <c>.git</c> file) is still listed,
+    /// with <see cref="WorktreeEntry.Error"/> set and conservative state, so one bad worktree never hides the others.
+    /// </returns>
     public IReadOnlyList<WorktreeEntry> List(string? baseBranch = null, bool all = false)
     {
         var metas = BranchMetaStore.ReadAll(Git);
@@ -175,22 +182,36 @@ public sealed class WorktreeManager
                 continue;
             }
 
-            var missing = w.Prunable || !Directory.Exists(w.Path);
-            var dirty = !missing && Git.At(w.Path).Run("status", "--porcelain").Length > 0;
-            if (meta is null)
-            {
-                entries.Add(new WorktreeEntry(w.Path, w.Branch!, null, null, false, w.Head, w.Locked, w.LockReason, missing, dirty, false, 0, null, false));
-                continue;
-            }
-
-            var baseExists = Git.RefExists(GitRunner.HeadsRef(meta.Base));
-            var empty = string.Equals(w.Head, meta.ForkPoint, StringComparison.OrdinalIgnoreCase);
-            var ahead = int.Parse(Git.Run("rev-list", "--count", $"{meta.ForkPoint}..{GitRunner.HeadsRef(w.Branch!)}"), CultureInfo.InvariantCulture);
-            var via = empty ? null : MergeCheck.LandedVia(Git, w.Branch!, baseExists ? meta.Base : config.BaseBranch, LedgerFor(history, ledgers, meta.Base, baseExists));
-            entries.Add(new WorktreeEntry(w.Path, w.Branch!, meta.Ticket, meta.Base, baseExists, w.Head, w.Locked, w.LockReason, missing, dirty, empty, ahead, via, true));
+            entries.Add(Assess(w, meta, history, ledgers));
         }
 
         return entries;
+    }
+
+    // Reads one worktree's state; a git failure here is confined to this entry (reported in Error, state left conservative).
+    WorktreeEntry Assess(GitWorktree w, BranchMeta? meta, RunHistory history, Dictionary<string, IReadOnlySet<string>> ledgers)
+    {
+        var missing = w.Prunable || !Directory.Exists(w.Path);
+        var baseExists = meta is not null && Git.RefExists(GitRunner.HeadsRef(meta.Base));
+        var entry = new WorktreeEntry(w.Path, w.Branch!, meta?.Ticket, meta?.Base, baseExists, w.Head, w.Locked, w.LockReason, missing, false, false, 0, null, meta is not null);
+        try
+        {
+            var dirty = !missing && Git.At(w.Path).Run("status", "--porcelain").Length > 0;
+            if (meta is null)
+            {
+                return entry with { Dirty = dirty };
+            }
+
+            var empty = string.Equals(w.Head, meta.ForkPoint, StringComparison.OrdinalIgnoreCase);
+            var ahead = int.Parse(Git.Run("rev-list", "--count", $"{meta.ForkPoint}..{GitRunner.HeadsRef(w.Branch!)}"), CultureInfo.InvariantCulture);
+            var via = empty ? null : MergeCheck.LandedVia(Git, w.Branch!, baseExists ? meta.Base : config.BaseBranch, LedgerFor(history, ledgers, meta.Base, baseExists));
+            return entry with { Dirty = dirty, Empty = empty, AheadOfBase = ahead, MergedVia = via };
+        }
+        catch (ToolException e)
+        {
+            // Unknown state is reported as dirty and unmerged, so nothing downstream treats it as disposable.
+            return entry with { Dirty = true, Error = TextLines.OneLine(e.Message) };
+        }
     }
 
     // The three config writes can lose a race for .git/config.lock; retry briefly, then undo the worktree and branch so a failed create leaves nothing behind.

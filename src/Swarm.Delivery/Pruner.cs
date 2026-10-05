@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Swarm.Git;
 using Swarm.RunState;
 
@@ -75,6 +76,12 @@ public sealed class Pruner(WorktreeManager manager)
             return new PruneDecision(PruneActions.Keep, $"locked ({entry.LockReason ?? "no reason"}): run git worktree unlock first", false);
         }
 
+        if (entry.Missing && entry.DirectoryExists)
+        {
+            // git calls the registration prunable (e.g. the directory's .git file is gone) but the directory may still hold the only copy of work.
+            return new PruneDecision(PruneActions.Keep, "registration stale (gitdir missing) but directory exists; inspect it", false);
+        }
+
         if (entry.Missing)
         {
             var merged = entry.MergedVia is not null;
@@ -114,8 +121,9 @@ public sealed class Pruner(WorktreeManager manager)
                 {
                     item = Apply(e, d, force, item);
                 }
-                catch (ToolException ex)
+                catch (Exception ex) when (ex is ToolException or IOException or UnauthorizedAccessException or Win32Exception)
                 {
+                    // One failure never stops the rest or loses the report of items already processed.
                     item = item with { Error = TextLines.OneLine(ex.Message) };
                 }
             }
@@ -140,32 +148,48 @@ public sealed class Pruner(WorktreeManager manager)
         if (r.ExitCode != 0)
         {
             // The branch is kept whenever the worktree could not be removed.
-            return item with { Error = RemoveFailure(e.Path, r) };
+            return item with { Error = RemoveFailure(e.Path, d.Action, r) };
         }
 
         item = item with { Done = true };
         return d.DeleteBranch ? DeleteBranch(e, item) : item;
     }
 
-    // Reports what is actually left after a failed remove (on Windows a held file makes git fail part-way; git 2.54 has by then dropped the registration).
-    // The facts come first and git's message last, so truncation to one line can only shorten git's message.
-    string RemoveFailure(string path, ProcessResult r)
+    // Reports what is actually left after a failed remove. The facts come first and git's message last, so truncation to one line can only shorten git's message.
+    // Manual deletion is advised only in the held-file case (C6): a worktree judged disposable (Remove) that git has already deregistered.
+    // A directory that is still registered, or whose registration state is unknown, or that was expected to be missing, may hold the only copy of work.
+    string RemoveFailure(string path, string action, ProcessResult r)
     {
-        var notes = new List<string> { "remove failed" };
-        if (Directory.Exists(path))
-        {
-            notes.Add($"'{path}' left behind (a file may be in use), delete it manually");
-        }
-
+        bool? registered;
         try
         {
-            notes.Add(WorktreeList.Read(manager.Git).Any(w => WorktreeList.SamePath(w.Path, path))
-                ? "worktree still registered"
-                : "worktree no longer registered");
+            registered = WorktreeList.Read(manager.Git).Any(w => WorktreeList.SamePath(w.Path, path));
         }
         catch (ToolException)
         {
-            notes.Add("worktree registration unknown, check git worktree list");
+            registered = null;
+        }
+
+        var notes = new List<string> { "remove failed" };
+        if (!Directory.Exists(path))
+        {
+            notes.Add(registered switch
+            {
+                true => "worktree still registered",
+                false => "worktree no longer registered",
+                null => "worktree registration unknown, check git worktree list",
+            });
+        }
+        else
+        {
+            const string Inspect = "inspect it (it may hold uncommitted work)";
+            notes.Add(registered switch
+            {
+                false when action == PruneActions.Remove => $"'{path}' left behind and no longer registered (a file may be in use), delete it manually",
+                false => $"'{path}' still exists but is no longer registered; {Inspect}",
+                true => $"'{path}' still exists and is still registered; {Inspect}",
+                null => $"'{path}' still exists and its registration is unknown (check git worktree list); {Inspect}",
+            });
         }
 
         notes.Add("branch kept");

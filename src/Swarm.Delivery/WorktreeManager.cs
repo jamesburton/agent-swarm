@@ -31,7 +31,7 @@ public sealed record WorktreeCreateResult(int SchemaVersion, bool Created, strin
 /// <param name="Head">Head commit.</param>
 /// <param name="Locked">True when locked.</param>
 /// <param name="LockReason">Lock reason.</param>
-/// <param name="Missing">True when the directory is gone.</param>
+/// <param name="Missing">True when the directory is gone or git reports the registration prunable (see <c>DirectoryExists</c>).</param>
 /// <param name="Dirty">True with uncommitted or untracked changes.</param>
 /// <param name="Empty">True when the head is still the fork point (no commits).</param>
 /// <param name="AheadOfBase">Commits since the fork point.</param>
@@ -41,9 +41,13 @@ public sealed record WorktreeCreateResult(int SchemaVersion, bool Created, strin
 /// One-line reason the worktree's state could not be assessed, or null. When set, the state fields are conservative
 /// (<c>Dirty</c> true, <c>Empty</c> false, <c>AheadOfBase</c> 0, <c>MergedVia</c> null) and the worktree must be kept.
 /// </param>
+/// <param name="DirectoryExists">
+/// True when the worktree directory exists on disk. With <c>Missing</c> also true, git's registration is stale (e.g. the
+/// directory's <c>.git</c> file is gone) but the directory may still hold work, so it is not disposable.
+/// </param>
 public sealed record WorktreeEntry(
     string Path, string Branch, string? Ticket, string? Base, bool BaseExists, string? Head, bool Locked, string? LockReason,
-    bool Missing, bool Dirty, bool Empty, int AheadOfBase, string? MergedVia, bool Managed, string? Error = null);
+    bool Missing, bool Dirty, bool Empty, int AheadOfBase, string? MergedVia, bool Managed, string? Error = null, bool DirectoryExists = true);
 
 /// <summary>stdout of <c>worktree list</c>.</summary>
 /// <param name="SchemaVersion">Always <see cref="SwarmJson.SchemaVersion"/>.</param>
@@ -191,9 +195,10 @@ public sealed class WorktreeManager
     // Reads one worktree's state; a git failure here is confined to this entry (reported in Error, state left conservative).
     WorktreeEntry Assess(GitWorktree w, BranchMeta? meta, RunHistory history, Dictionary<string, IReadOnlySet<string>> ledgers)
     {
-        var missing = w.Prunable || !Directory.Exists(w.Path);
+        var directoryExists = Directory.Exists(w.Path);
+        var missing = w.Prunable || !directoryExists;
         var baseExists = meta is not null && Git.RefExists(GitRunner.HeadsRef(meta.Base));
-        var entry = new WorktreeEntry(w.Path, w.Branch!, meta?.Ticket, meta?.Base, baseExists, w.Head, w.Locked, w.LockReason, missing, false, false, 0, null, meta is not null);
+        var entry = new WorktreeEntry(w.Path, w.Branch!, meta?.Ticket, meta?.Base, baseExists, w.Head, w.Locked, w.LockReason, missing, false, false, 0, null, meta is not null, null, directoryExists);
         try
         {
             var dirty = !missing && Git.At(w.Path).Run("status", "--porcelain").Length > 0;

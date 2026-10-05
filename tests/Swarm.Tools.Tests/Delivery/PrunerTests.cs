@@ -8,8 +8,17 @@ public class PrunerTests
 {
     const string Epic = "epic/42-auth";
 
-    static WorktreeEntry Entry(bool locked = false, bool missing = false, bool dirty = false, bool empty = false, string? merged = null, bool baseExists = true, bool managed = true, string? error = null) =>
-        new("p", "task/1-x", "1", Epic, baseExists, "h", locked, locked ? "busy" : null, missing, dirty, empty, empty ? 0 : 2, merged, managed, error);
+    static WorktreeEntry Entry(bool locked = false, bool missing = false, bool dirty = false, bool empty = false, string? merged = null, bool baseExists = true, bool managed = true, string? error = null, bool? directoryExists = null) =>
+        new("p", "task/1-x", "1", Epic, baseExists, "h", locked, locked ? "busy" : null, missing, dirty, empty, empty ? 0 : 2, merged, managed, error, directoryExists ?? !missing);
+
+    // Deletes a worktree's .git file and leaves uncommitted work: git then lists the registration as prunable though the directory exists.
+    static string StaleGitdirWithWork(string worktree)
+    {
+        var work = Path.Combine(worktree, "work.txt");
+        File.WriteAllText(work, "only copy\n");
+        File.Delete(Path.Combine(worktree, ".git"));
+        return work;
+    }
 
     static (TempRepo Repo, WorktreeManager Manager) Setup()
     {
@@ -79,6 +88,104 @@ public class PrunerTests
         Assert.Equal("could not assess: status failed", unassessable.Reason);
         var unmanaged = Pruner.Decide(Entry(merged: MergeVia.Ancestor, managed: false), force);
         Assert.Equal((PruneActions.Keep, false), (unmanaged.Action, unmanaged.DeleteBranch));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Decide_StaleRegistrationWhoseDirectoryExists_IsKept(bool force)
+    {
+        var d = Pruner.Decide(Entry(missing: true, merged: MergeVia.Ancestor, directoryExists: true), force);
+        Assert.Equal((PruneActions.Keep, false), (d.Action, d.DeleteBranch));
+        Assert.Equal("registration stale (gitdir missing) but directory exists; inspect it", d.Reason);
+    }
+
+    [Fact]
+    public void StaleRegistrationWithDirectory_KeptWithItsWorkEvenWithForce_RestProcessed()
+    {
+        var (repo, m) = Setup();
+        using var _ = repo;
+        var stale = Work(m, "1");
+        var free = Work(m, "2");
+        SquashOntoEpic(repo, "1");
+        SquashOntoEpic(repo, "2");
+        var work = StaleGitdirWithWork(stale.Path);
+        var listed = m.List().Single(e => e.Ticket == "1");
+        Assert.Equal((true, true), (listed.Missing, listed.DirectoryExists));
+
+        var report = new Pruner(m).Prune(null, false, true);
+
+        var item = report.Items.Single(i => i.Ticket == "1");
+        Assert.Equal((PruneActions.Keep, false, false, null), (item.Action, item.Done, item.BranchDeleted, item.Error));
+        Assert.Contains("inspect it", item.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("delete it manually", item.Reason, StringComparison.Ordinal);
+        Assert.True(File.Exists(work));
+        Assert.NotEmpty(repo.Git("branch", "--list", stale.Branch));
+        Assert.Contains(WorktreeList.Read(m.Git), w => WorktreeList.SamePath(w.Path, stale.Path));
+        Assert.False(Directory.Exists(free.Path));
+        Assert.Equal((1, 1, 0), (report.Removed, report.Kept, report.Failed));
+    }
+
+    [Fact]
+    public void RemoveRefusedForARegisteredDirectory_AdvisesInspectionNotDeletion_RestProcessed()
+    {
+        var (repo, m) = Setup();
+        using var _ = repo;
+        var first = Work(m, "1");
+        var second = Work(m, "2");
+        SquashOntoEpic(repo, "1");
+        SquashOntoEpic(repo, "2");
+        string? work = null;
+
+        // The .git file disappears after listing, so git refuses the remove ("validation failed") and keeps the registration.
+        var report = new Pruner(m) { BeforeApply = e => work ??= StaleGitdirWithWork(e.Path) }.Prune(null, false, false);
+
+        var failed = report.Items.Single(i => i.Error is not null);
+        Assert.Equal((false, false), (failed.Done, failed.BranchDeleted));
+        Assert.Contains($"'{failed.Path}' still exists and is still registered; inspect it (it may hold uncommitted work)", failed.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("delete it manually", failed.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("in use", failed.Error, StringComparison.Ordinal);
+        Assert.True(File.Exists(work));
+        Assert.NotEmpty(repo.Git("branch", "--list", failed.Branch));
+        Assert.Equal((1, 1), (report.Removed, report.Failed));
+        Assert.False(Directory.Exists(report.Items.Single(i => i.Error is null).Path));
+        Assert.Contains(new[] { first.Path, second.Path }, p => WorktreeList.SamePath(p, failed.Path));
+    }
+
+    [Fact]
+    public void NonGitExceptionOnOneItem_DoesNotStopTheRest()
+    {
+        var (repo, m) = Setup();
+        using var _ = repo;
+        var first = Work(m, "1");
+        var second = Work(m, "2");
+        SquashOntoEpic(repo, "1");
+        SquashOntoEpic(repo, "2");
+        var thrown = false;
+        var pruner = new Pruner(m)
+        {
+            BeforeApply = e =>
+            {
+                if (!thrown)
+                {
+                    thrown = true;
+                    throw new IOException("disk went away\nsecond line");
+                }
+            },
+        };
+
+        var report = pruner.Prune(null, false, false);
+
+        Assert.Equal((1, 1), (report.Removed, report.Failed));
+        var failed = report.Items.Single(i => i.Error is not null);
+        Assert.Equal((false, false), (failed.Done, failed.BranchDeleted));
+        Assert.Equal("disk went away second line", failed.Error);
+        Assert.True(Directory.Exists(failed.Path));
+        Assert.NotEmpty(repo.Git("branch", "--list", report.Items.Single(i => i.Error is not null).Branch));
+        var done = report.Items.Single(i => i.Error is null);
+        Assert.Equal((true, true), (done.Done, done.BranchDeleted));
+        Assert.False(Directory.Exists(done.Path));
+        Assert.Contains(new[] { first.Path, second.Path }, p => WorktreeList.SamePath(p, done.Path));
     }
 
     [Fact]
@@ -310,6 +417,12 @@ public class PrunerTests
         var free = Work(m, "2");
         SquashOntoEpic(repo, "1");
         SquashOntoEpic(repo, "2");
+
+        // Make f1.txt stat-clean (older than the index): otherwise git's racy-clean check makes `status` read it, the held handle
+        // fails that read, and List reports the worktree as unassessable (kept) instead of reaching the remove under test.
+        var heldFile = Path.Combine(held.Path, "f1.txt");
+        File.SetLastWriteTimeUtc(heldFile, DateTime.UtcNow.AddHours(-1));
+        TempRepo.RunGit(held.Path, "update-index", "--refresh");
         PruneReport report;
         using (new FileStream(Path.Combine(held.Path, "f1.txt"), FileMode.Open, FileAccess.Read, FileShare.None))
         {

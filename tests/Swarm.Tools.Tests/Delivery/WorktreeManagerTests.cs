@@ -166,7 +166,7 @@ public class WorktreeManagerTests
         Assert.Equal(1, list["3"].AheadOfBase);
         Assert.Null(list["3"].MergedVia);
         Assert.Equal(("agent busy", true), (list["4"].LockReason, list["4"].Locked));
-        Assert.All(list.Values, e => Assert.True(e.Managed && e.BaseExists));
+        Assert.All(list.Values, e => Assert.True(e.Managed && e.BaseExists && e.DirectoryExists && !e.Missing));
     }
 
     [Fact]
@@ -194,6 +194,7 @@ public class WorktreeManagerTests
         FileTree.DeleteTree(r.Path);
         var e = Assert.Single(m.List());
         Assert.True(e.Missing);
+        Assert.False(e.DirectoryExists);
         Assert.False(e.Dirty);
     }
 

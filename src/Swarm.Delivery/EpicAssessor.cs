@@ -7,7 +7,11 @@ namespace Swarm.Delivery;
 /// <summary>Reasons an epic cannot be closed (<see cref="EpicBlocker.Code"/>).</summary>
 public static class BlockerCodes
 {
-    /// <summary>A batch or squash run holds the per-epic lock they share (not waivable).</summary>
+    /// <summary>
+    /// A batch or squash run holds the per-epic lock they share (not waivable). A lock with a fresh heartbeat always
+    /// counts (<see cref="SlotSemaphore.BlocksAcquire"/>), so a crashed local run blocks until its lock is older than
+    /// <c>expirySec</c>.
+    /// </summary>
     public const string BatchRunning = "batch-running";
 
     /// <summary>A batch run has no summary: crashed or killed (waivable).</summary>
@@ -69,7 +73,7 @@ public sealed record TaskReturn(string Task, string State, string Branch, string
 /// <param name="OpenTasks">Tasks returned or unprocessed.</param>
 /// <param name="Worktrees">Managed task worktrees on the epic.</param>
 /// <param name="WorktreesUnmerged">Of those, with unmerged or uncommitted work.</param>
-/// <param name="BatchRunning">True when a live batch or squash run holds the epic lock.</param>
+/// <param name="BatchRunning">True when the epic lock is held by the acquire rule (a fresh heartbeat always counts).</param>
 /// <param name="Upstream">Active branch's upstream (last fetched), or null.</param>
 /// <param name="Blockers">Reasons it cannot close now.</param>
 /// <param name="ReadyToClose">True when there are no blockers.</param>
@@ -128,9 +132,11 @@ public sealed class EpicAssessor(RepoPaths repo, SwarmConfig config)
 
         // batch run and squash run share this per-epic lock (slot 0 for the whole run). Without a batch epic id the
         // epic branch cannot be reached through epicBranchTemplate, so neither tool can run on it and there is no lock.
+        // "Running" uses the acquire rule (SlotSemaphore.BlocksAcquire): a fresh heartbeat always counts. Known limitation:
+        // a genuinely crashed local run keeps blocking (not waivable) until its lock is older than expirySec.
         var batchEpic = EpicNaming.BatchEpicId(config, epic.Branch);
         var running = batchEpic is not null
-            && new SlotSemaphore(manager.State.BatchLockDir(batchEpic), SlotOptions.From(config) with { Slots = 1 }).Status().Any(HoldsLock);
+            && new SlotSemaphore(manager.State.BatchLockDir(batchEpic), SlotOptions.From(config) with { Slots = 1 }).Status().Any(SlotSemaphore.BlocksAcquire);
         if (running)
         {
             blockers.Add(new EpicBlocker(BlockerCodes.BatchRunning, $"a batch or squash run holds epic '{batchEpic}'; wait for it to finish", false));
@@ -205,20 +211,13 @@ public sealed class EpicAssessor(RepoPaths repo, SwarmConfig config)
             worktrees.Count, unmerged.Count, running, upstream, blockers, blockers.Count == 0);
     }
 
-    // Mirrors SlotSemaphore's acquire: a lock blocks a new run unless it is stale and not held by a live local process.
-    // Unreadable (mid-write) locks count until they expire; holders on other hosts count until their heartbeat expires.
-    static bool HoldsLock(SlotHolder h) =>
-        h.Info is { } info && string.Equals(info.Host, Environment.MachineName, StringComparison.OrdinalIgnoreCase)
-            ? h.HolderAlive
-            : !h.Stale;
-
     // Why a task worktree blocks a close, as a detail suffix ("" for plain unmerged work), or null when it does not block.
-    // Unknown state (Error) and a stale registration whose directory still exists may hide work, so both block even when
-    // the branch itself reads as merged.
+    // Unknown state (Error), a stale registration whose directory still exists and uncommitted edits may hide work the
+    // epic lacks, so all three block even when the branch itself reads as merged.
     static string? UnmergedReason(WorktreeEntry w) =>
         w.Error is not null ? $"; could not be assessed: {w.Error}"
         : w.Missing && w.DirectoryExists ? "; registration stale but directory exists, inspect it"
-        : w.MergedVia is null && (w.AheadOfBase > 0 || w.Dirty) ? ""
+        : w.Dirty || (w.MergedVia is null && w.AheadOfBase > 0) ? ""
         : null;
 
     // batch records a land failure as "land conflict with the epic tip" with no files and keeps the real reason (for

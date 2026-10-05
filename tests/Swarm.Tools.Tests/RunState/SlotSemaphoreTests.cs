@@ -151,6 +151,40 @@ public class SlotSemaphoreTests
         Assert.True(File.Exists(path));
     }
 
+    [Theory]
+    [InlineData("local-alive", false, true)]
+    [InlineData("local-alive", true, true)] // suspended: never taken over
+    [InlineData("local-dead", false, true)] // fresh heartbeat: held until it expires, whatever the pid check says
+    [InlineData("local-dead", true, false)]
+    [InlineData("remote", false, true)]
+    [InlineData("remote", true, false)]
+    [InlineData("unreadable", false, true)]
+    [InlineData("unreadable", true, false)]
+    public void BlocksAcquire_MatchesTryAcquire(string holder, bool stale, bool blocks)
+    {
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Dir, "slot-0.lock");
+        using (var me = System.Diagnostics.Process.GetCurrentProcess())
+        {
+            var start = me.StartTime.ToUniversalTime();
+            File.WriteAllText(path, holder switch
+            {
+                "local-alive" => SwarmJson.Line(new LockInfo(SwarmJson.SchemaVersion, Environment.ProcessId, Environment.MachineName, "x", DateTime.UtcNow, start)),
+                "local-dead" => SwarmJson.Line(new LockInfo(SwarmJson.SchemaVersion, Environment.ProcessId, Environment.MachineName, "x", DateTime.UtcNow, start.AddDays(-3))),
+                "remote" => SwarmJson.Line(new LockInfo(SwarmJson.SchemaVersion, 1, "some-other-host-" + Guid.NewGuid().ToString("N"), "x", DateTime.UtcNow, DateTime.UtcNow)),
+                _ => "{\"schemaVer",
+            });
+        }
+
+        File.SetLastWriteTimeUtc(path, stale ? DateTime.UtcNow.AddDays(-1) : DateTime.UtcNow);
+        var sem = new SlotSemaphore(dir.Dir, Options(1, expirySec: 600));
+        Assert.Equal(blocks, SlotSemaphore.BlocksAcquire(Assert.Single(sem.Status())));
+
+        // The helper must agree with the real acquire path.
+        using var lease = sem.TryAcquire("probe");
+        Assert.Equal(blocks, lease is null);
+    }
+
     [Fact]
     public void EnvironmentalCreateFailure_IsEnvironmentErrorNotSlotHeld()
     {

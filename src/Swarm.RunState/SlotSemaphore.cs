@@ -171,6 +171,17 @@ public sealed class SlotSemaphore
         }
     }
 
+    /// <summary>
+    /// Decides whether a lock file stops a new holder from taking its slot, exactly as <see cref="Acquire"/> decides: a
+    /// lock can be taken over only when its heartbeat has expired and its holder is not a live local process. So a fresh
+    /// heartbeat always counts as held, even when the holder looks dead locally (the pid check fails for another user's
+    /// process, or for a same-named host such as WSL); a genuinely crashed local holder therefore still counts as held
+    /// until <see cref="SlotOptions.Expiry"/> passes.
+    /// </summary>
+    /// <param name="holder">A lock as reported by <see cref="Status"/>.</param>
+    /// <returns>True when the slot is held.</returns>
+    public static bool BlocksAcquire(SlotHolder holder) => !holder.Stale || (IsLocal(holder.Info) && holder.HolderAlive);
+
     /// <summary>Waits for a free slot.</summary>
     /// <param name="command">What the holder will run (recorded in the lock).</param>
     /// <param name="cancellationToken">Stops waiting.</param>

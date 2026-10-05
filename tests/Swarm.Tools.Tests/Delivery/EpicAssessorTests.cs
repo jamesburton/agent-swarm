@@ -176,7 +176,8 @@ public class EpicAssessorTests
     [Theory]
     [InlineData("local-alive", true, true)] // suspended local holder: batch's acquire never takes it over
     [InlineData("local-alive", false, true)]
-    [InlineData("local-dead", false, false)] // crashed local holder: reclaimable now
+    [InlineData("local-dead", false, true)] // pid not confirmed but heartbeat fresh: held until it expires (acquire agrees)
+    [InlineData("local-dead", true, false)] // crashed local holder with an expired heartbeat: reclaimable
     [InlineData("remote", false, true)] // another host, heartbeat fresh
     [InlineData("remote", true, false)] // another host, heartbeat expired: reclaimable
     [InlineData("unreadable", false, true)] // mid-write: treated as held until it expires
@@ -205,6 +206,40 @@ public class EpicAssessorTests
         var s = f.Assess(config);
         Assert.Equal(running, s.BatchRunning);
         Assert.Equal(running ? BlockerCodes.BatchRunning : BlockerCodes.RunUnfinished, Assert.Single(s.Blockers).Code);
+    }
+
+    [Fact]
+    public void FreshLockWhoseHolderCannotBeConfirmed_BlocksAsRunning()
+    {
+        // E.g. a squash run (no run state at all) by another user, or under WSL with the same host name: the pid check fails
+        // but the heartbeat is fresh, so the lock is held and the close must wait.
+        using var f = new Fixture();
+        var dir = new StateLayout(f.Repo.StateDir).BatchLockDir("42-auth");
+        Directory.CreateDirectory(dir);
+        var file = Path.Combine(dir, "slot-0.lock");
+        File.WriteAllText(file, SwarmJson.Line(new LockInfo(1, int.MaxValue - 7, Environment.MachineName, "squash run x", T0, T0)));
+        File.SetLastWriteTimeUtc(file, DateTime.UtcNow);
+        var s = f.Assess(f.Config with { ExpirySec = 600 });
+        Assert.Equal((true, false), (s.BatchRunning, s.ReadyToClose));
+        var b = Assert.Single(s.Blockers);
+        Assert.Equal((BlockerCodes.BatchRunning, false), (b.Code, b.Waivable));
+    }
+
+    [Fact]
+    public void MergedTaskWorktreeWithUncommittedEdits_BlocksWaivably()
+    {
+        using var f = new Fixture();
+        var wt = new WorktreeManager(f.Paths, f.Config).Create(new CreateRequest("9934", "more", Epic, null));
+        File.WriteAllText(Path.Combine(wt.Path, "more.txt"), "more\n");
+        TempRepo.RunGit(wt.Path, "add", "-A");
+        TempRepo.RunGit(wt.Path, "commit", "-q", "-m", "landed");
+        f.Repo.Git("branch", "-f", Epic, wt.Branch); // the epic now contains the task's work (ancestor-merged)
+        File.WriteAllText(Path.Combine(wt.Path, "more.txt"), "edited after landing\n");
+        var s = f.Assess();
+        Assert.Equal(1, s.WorktreesUnmerged);
+        var b = Assert.Single(s.Blockers);
+        Assert.Equal((BlockerCodes.WorktreesUnmerged, true), (b.Code, b.Waivable));
+        Assert.Contains("9934", b.Detail);
     }
 
     [Fact]

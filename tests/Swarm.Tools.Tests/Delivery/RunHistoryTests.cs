@@ -1,4 +1,5 @@
 using Swarm.Delivery;
+using Swarm.Git;
 using Swarm.RunState;
 using Swarm.Tools.Tests.Support;
 
@@ -53,17 +54,70 @@ public class RunHistoryTests
         Assert.Equal(T0, run.StartedUtc);
     }
 
+    static HashSet<string> Landed(TempRepo repo, string stateDir, string epic = "epic/42-auth") =>
+        [.. RunHistory.Load(new StateLayout(stateDir)).LandedBranches(new GitRunner(repo.Root), epic)];
+
+    static TempRepo RepoWithTask(params string[] branches)
+    {
+        var repo = TempRepo.Create();
+        repo.Epic(name: "epic/42-auth");
+        foreach (var b in branches)
+        {
+            repo.Branch(b, "epic/42-auth", ("f-" + b.Replace('/', '_') + ".txt", "x\n"));
+        }
+
+        return repo;
+    }
+
     [Fact]
     public void LandedBranches_IncludesWorkerBranchOfRebasedAndLanded()
     {
-        using var dir = new TempDir();
+        using var repo = RepoWithTask("task/T1", "task/T2");
+        var started = DateTime.UtcNow.AddHours(1);
         RunStateFixture.WriteRun(
-            dir.Dir, "r1", T0, "epic/42-auth",
+            repo.StateDir, "r1", started, "epic/42-auth",
             [new LandedRecord("T1", 1, "c1", "task/T1"), new LandedRecord("T2", 2, "c2", "rebased/E1/T2")],
             [RunStateFixture.Returned("T2", "task/T2", FinalState.RebasedAndLanded, ReturnKind.Conflict)]);
-        var branches = RunHistory.Load(new StateLayout(dir.Dir)).LandedBranches();
+        var branches = Landed(repo, repo.StateDir);
         Assert.Contains("task/T1", branches);
         Assert.Contains("task/T2", branches);
+    }
+
+    [Fact]
+    public void LandedBranches_OmitsBranchCommittedAfterTheLandingRunStarted()
+    {
+        using var repo = RepoWithTask("task/T1");
+        RunStateFixture.WriteRun(repo.StateDir, "r1", DateTime.UtcNow.AddHours(-1), "epic/42-auth", [new LandedRecord("T1", 1, "c1", "task/T1")], []);
+        var set = Landed(repo, repo.StateDir);
+        Assert.Empty(set);
+        Assert.Null(MergeCheck.LandedVia(new GitRunner(repo.Root), "task/T1", "epic/42-auth", set));
+    }
+
+    [Fact]
+    public void LandedBranches_UnchangedLandedBranchIsTrusted()
+    {
+        using var repo = RepoWithTask("task/T1");
+        RunStateFixture.WriteRun(repo.StateDir, "r1", DateTime.UtcNow.AddHours(1), "epic/42-auth", [new LandedRecord("T1", 1, "c1", "task/T1")], []);
+        var set = Landed(repo, repo.StateDir);
+        Assert.Contains("task/T1", set);
+        Assert.Equal(MergeVia.Ledger, MergeCheck.LandedVia(new GitRunner(repo.Root), "task/T1", "epic/42-auth", set));
+    }
+
+    [Fact]
+    public void LandedBranches_AreScopedToTheEpic()
+    {
+        using var repo = RepoWithTask("task/T1");
+        RunStateFixture.WriteRun(repo.StateDir, "r1", DateTime.UtcNow.AddHours(1), "epic/42-auth", [new LandedRecord("T1", 1, "c1", "task/T1")], []);
+        Assert.Contains("task/T1", Landed(repo, repo.StateDir, "epic/42-auth"));
+        Assert.Empty(Landed(repo, repo.StateDir, "epic/7-x"));
+    }
+
+    [Fact]
+    public void LandedBranches_MissingBranchIsOmitted()
+    {
+        using var repo = RepoWithTask();
+        RunStateFixture.WriteRun(repo.StateDir, "r1", DateTime.UtcNow.AddHours(1), "epic/42-auth", [new LandedRecord("T1", 1, "c1", "task/gone")], []);
+        Assert.Empty(Landed(repo, repo.StateDir));
     }
 
     [Fact]

@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.Json;
+using Swarm.Git;
 using Swarm.RunState;
 
 namespace Swarm.Delivery;
@@ -109,15 +111,39 @@ public sealed class RunHistory
     public IReadOnlyList<RunRecord> ForEpic(string epicBranch) =>
         Runs.Where(r => string.Equals(r.EpicBranch, epicBranch, StringComparison.Ordinal)).ToList();
 
-    /// <summary>Gets every branch recorded as landed: landed branches plus worker branches of rebased-and-landed tasks.</summary>
-    /// <returns>Branch names.</returns>
-    public IReadOnlySet<string> LandedBranches()
+    /// <summary>
+    /// Gets the branches that batch run state of one epic records as landed and whose work is still unchanged since.
+    /// A branch is included only when it exists and its current tip's committer date is not after the start of the
+    /// latest run (of that epic) that landed it; a branch that gained commits after landing, was deleted and re-created
+    /// under the same name, never landed on this epic, or cannot be read from git is omitted, so callers fall through to
+    /// the git-based checks of <see cref="MergeCheck.LandedVia"/>.
+    /// </summary>
+    /// <param name="git">Runner in any worktree of the repository.</param>
+    /// <param name="epicBranch">Epic branch name; only its runs are considered.</param>
+    /// <returns>Branch names (landed branches plus worker branches of rebased-and-landed tasks).</returns>
+    public IReadOnlySet<string> LandedBranches(GitRunner git, string epicBranch)
     {
-        var set = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var run in Runs)
+        var landedAt = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        foreach (var run in ForEpic(epicBranch))
         {
-            set.UnionWith(run.Summary?.Landed.Select(l => l.Branch) ?? []);
-            set.UnionWith(run.Returned.Values.Where(r => r.Final == FinalState.RebasedAndLanded).Select(r => r.Branch));
+            foreach (var branch in (run.Summary?.Landed.Select(l => l.Branch) ?? [])
+                .Concat(run.Returned.Values.Where(r => r.Final == FinalState.RebasedAndLanded).Select(r => r.Branch)))
+            {
+                // Runs are oldest first, so the last write is the latest landing run.
+                landedAt[branch] = run.StartedUtc;
+            }
+        }
+
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (branch, started) in landedAt)
+        {
+            var tip = git.Try("log", "-1", "--format=%cI", GitRunner.HeadsRef(branch));
+            if (tip.ExitCode == 0
+                && DateTimeOffset.TryParse(tip.StdOut.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var committed)
+                && committed.UtcDateTime <= started)
+            {
+                set.Add(branch);
+            }
         }
 
         return set;

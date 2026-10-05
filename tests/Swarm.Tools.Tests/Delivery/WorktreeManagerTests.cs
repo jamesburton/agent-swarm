@@ -197,6 +197,15 @@ public class WorktreeManagerTests
         Assert.False(e.Dirty);
     }
 
+    static void WaitForWorktree(string path)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (!File.Exists(Path.Combine(path, ".git")) && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(5);
+        }
+    }
+
     [Fact]
     public void Create_RetriesMetadataWriteWhileConfigIsLocked()
     {
@@ -204,9 +213,12 @@ public class WorktreeManagerTests
         var m = Manager(repo);
         var gate = Path.Combine(repo.Root, ".git", "config.lock");
         File.WriteAllText(gate, string.Empty);
+
+        // Release only well after the worktree appears (so the first metadata write, which follows git's checkout, meets the lock), so a later attempt succeeds.
         var release = new Thread(() =>
         {
-            Thread.Sleep(300);
+            WaitForWorktree(m.PathFor("1"));
+            Thread.Sleep(600);
             File.Delete(gate);
         });
         release.Start();
@@ -214,6 +226,64 @@ public class WorktreeManagerTests
         release.Join();
         Assert.True(r.Created);
         Assert.Equal("1", BranchMetaStore.ReadAll(m.Git)[r.Branch].Ticket);
+    }
+
+    [Fact]
+    public void Create_MetadataWriteFailsAndFileIsHeld_ReportsDirectoryLeftBehindTruthfully()
+    {
+        using var repo = Repo();
+        var m = Manager(repo);
+        var path = m.PathFor("1");
+        var gate = Path.Combine(repo.Root, ".git", "config.lock");
+        File.WriteAllText(gate, string.Empty);
+        using var held = new ManualResetEventSlim();
+        var holder = new Thread(() =>
+        {
+            WaitForWorktree(path);
+            using var f = new FileStream(Path.Combine(path, "held.txt"), FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+            held.Wait();
+        });
+        holder.Start();
+        try
+        {
+            var e = Assert.Throws<ToolException>(() => m.Create(new CreateRequest("1", "x", Epic, null)));
+            Assert.Equal(ExitCodes.Environment, e.ExitCode);
+            Assert.DoesNotContain("\n", e.Message, StringComparison.Ordinal);
+            Assert.Contains("left behind", e.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("worktree and branch removed", e.Message, StringComparison.Ordinal);
+            Assert.True(Directory.Exists(path));
+        }
+        finally
+        {
+            held.Set();
+            holder.Join();
+            File.Delete(gate);
+        }
+    }
+
+    [Fact]
+    public void Create_WorktreeAddFails_RemovesBranchSoRetrySucceeds()
+    {
+        using var repo = Repo();
+        repo.Epic(name: "epic/bad");
+
+        // A tracked path that Windows git refuses to check out (':' is protected under core.protectNTFS).
+        var blob = Path.Combine(repo.Sandbox, "blob.txt");
+        File.WriteAllText(blob, "x\n");
+        var sha = repo.Git("hash-object", "-w", blob);
+        var treeFile = Path.Combine(repo.Sandbox, "tree.bin");
+        File.WriteAllBytes(treeFile, [.. System.Text.Encoding.ASCII.GetBytes("100644 a:b.txt "), .. Convert.FromHexString(sha)]);
+        var tree = repo.Git("hash-object", "-t", "tree", "-w", "--literally", treeFile);
+        var commit = repo.Git("commit-tree", tree, "-p", "epic/bad", "-m", "bad path");
+        repo.Git("update-ref", "refs/heads/epic/bad", commit);
+
+        var m = Manager(repo);
+        var e = Assert.Throws<ToolException>(() => m.Create(new CreateRequest("1", "x", "epic/bad", null)));
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.DoesNotContain("\n", e.Message, StringComparison.Ordinal);
+        Assert.Empty(repo.Git("branch", "--list", "task/*"));
+        Assert.Single(WorktreeList.Read(m.Git));
+        Assert.True(m.Create(new CreateRequest("1", "x", Epic, null)).Created);
     }
 
     [Fact]

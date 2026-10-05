@@ -141,7 +141,13 @@ public sealed class WorktreeManager
         // Start from the base's sha (not its name) so the fork point recorded below is exactly what was checked out.
         var forkPoint = Git.RevParse(GitRunner.HeadsRef(request.BaseBranch));
         Directory.CreateDirectory(Root);
-        Git.Run("worktree", "add", "-q", "-b", branch, path, forkPoint);
+        var add = Git.Try("worktree", "add", "-q", "-b", branch, path, forkPoint);
+        if (add.ExitCode != 0)
+        {
+            // git may leave the new branch behind when checkout fails; it can only be the ref just created from forkPoint.
+            throw RollBack(branch, path, false, TextLines.OneLine(add.StdErr.Length > 0 ? add.StdErr : add.StdOut), "git worktree add failed");
+        }
+
         WriteMetaOrRollBack(new BranchMeta(branch, request.Ticket, request.BaseBranch, forkPoint), path);
         return new WorktreeCreateResult(SwarmJson.SchemaVersion, true, path, branch, request.Ticket, request.BaseBranch, forkPoint, MaxPathWarnings(path, forkPoint));
     }
@@ -200,12 +206,38 @@ public sealed class WorktreeManager
                     continue;
                 }
 
-                Git.Try("worktree", "remove", "--force", path);
-                Git.Try("branch", "-D", meta.Branch);
-                var reason = e.Message.ReplaceLineEndings(" ").Trim();
-                throw new ToolException(ExitCodes.Environment, $"could not record metadata for '{meta.Branch}' (worktree and branch removed): {reason}", "retry; another git process may be holding .git/config.lock");
+                throw RollBack(meta.Branch, path, true, e.Message.ReplaceLineEndings(" ").Trim(), $"could not record metadata for '{meta.Branch}'");
             }
         }
+    }
+
+    // Undoes a half-made create and reports what actually happened (git can fail to delete a worktree directory that has a file open on Windows).
+    ToolException RollBack(string branch, string path, bool removeWorktree, string cause, string what)
+    {
+        var removed = removeWorktree && Git.Try("worktree", "remove", "--force", path).ExitCode == 0;
+        var branchGone = Git.Try("branch", "-D", branch).ExitCode == 0 || !Git.RefExists(GitRunner.HeadsRef(branch));
+        var dirLeft = Directory.Exists(path);
+        var registered = WorktreeList.Read(Git).Any(w => WorktreeList.SamePath(w.Path, path));
+        var left = new List<string>();
+        if (dirLeft)
+        {
+            left.Add($"'{path}' left behind (a file may be in use), delete it manually");
+        }
+
+        if (registered)
+        {
+            left.Add($"worktree '{path}' still registered, run: git worktree remove --force");
+        }
+
+        if (!branchGone)
+        {
+            left.Add($"branch '{branch}' still exists, run: git branch -D");
+        }
+
+        var state = left.Count == 0
+            ? (removeWorktree && removed ? "worktree and branch removed" : "branch removed")
+            : "rollback incomplete: " + string.Join("; ", left);
+        return new ToolException(ExitCodes.Environment, $"{what} ({state}): {cause}");
     }
 
     // The run ledger is epic-scoped (and tip-date guarded); a worktree whose base is gone has no epic to ask, so it gets an empty ledger.

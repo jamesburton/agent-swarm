@@ -13,12 +13,12 @@ Everything below was checked against the source and, where marked, by running th
 
 - Requires the .NET 10 SDK or later (`dnx` ships with it).
 - **NOT REAL: nothing is published.** The package ids `Swarm.TestGate` and `Swarm.Batch` are placeholders that were not checked for ownership on nuget.org; anyone could publish a package under those ids (404 / dependency-confusion risk). Run them only from your own feed with `--add-source <your feed>`. Before any publish: reserve an owned id prefix, and add license, authors and readme metadata (`dotnet pack` currently emits warning NU5039, missing readme).
-- `Swarm.TestGate` is version `0.1.1`; `Swarm.Batch` is `0.2.0` (squash became the default lander). dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)).
+- `Swarm.TestGate` is version `0.1.2`; `Swarm.Batch` is `0.2.1` (0.2.0 made squash the default lander; 0.1.2/0.2.1 only accept the `worktree` and `epicTool` config sections of the worktree and epic tools). dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)).
 - dnx rules that matter here: there is no `--yes`, use `dnx.cmd` in Git Bash, and put `--` before the tool's own arguments. Details and the smoke runs of both tools: [dnx-invocation-notes.md](dnx-invocation-notes.md).
 
 ```bash
-dnx.cmd Swarm.TestGate@0.1.1 --add-source FEED -- run -- dotnet test
-dnx.cmd Swarm.Batch@0.2.0 --add-source FEED -- run tasks.json
+dnx.cmd Swarm.TestGate@0.1.2 --add-source FEED -- run -- dotnet test
+dnx.cmd Swarm.Batch@0.2.1 --add-source FEED -- run tasks.json
 ```
 
 ## testgate
@@ -159,6 +159,7 @@ Both tools read one shared file. Lookup order: command-line flags win over the f
 | `baseBranch` | `main` | non-empty, no whitespace, not starting with `-`; used by the squash lander to bound the epic history scanned for already-landed `Source-Commit:` trailers (`<baseBranch>..<epic>`); not used by testgate or the fast-forward lander | none |
 | `lander` | `squash` | `"squash"` or `"fast-forward"` | none |
 | `squash` | see [squash-tool.md#configuration](squash-tool.md#configuration) | object (`ticketPattern`, `requireTicket`, `subjectTemplate`, `author`) | none |
+| `worktree` / `epicTool` | see [worktree-epic-tools.md#branch-naming](worktree-epic-tools.md#branch-naming) | objects (`branchTemplate`, `defaultKind`, `allowedPrefixes`); read by the `worktree` and `epic` tools only | none |
 | `epic` | `E1` | a safe name | `--epic` (batch only) |
 | `epicBranchTemplate` | `epic/{epic}` | must contain `{epic}` | |
 | `testCommand` | `["dotnet","test"]` | non-empty array of non-empty strings (program, then arguments) | after `--` (testgate only) |

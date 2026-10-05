@@ -156,6 +156,8 @@ public static class ConfigLoader
         }
 
         e.AddRange(SquashConfig.Check(c.Squash));
+        e.AddRange(BranchTemplate.Check(c.Worktree, "worktree"));
+        e.AddRange(BranchTemplate.Check(c.EpicTool, "epicTool"));
 
         return e;
     }

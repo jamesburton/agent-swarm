@@ -72,6 +72,12 @@ public sealed record SwarmConfig
     /// <summary>Gets the squash lander settings.</summary>
     public SquashConfig Squash { get; init; } = new();
 
+    /// <summary>Gets the <c>worktree</c> tool section (task branch naming; Plan C).</summary>
+    public WorktreeSection Worktree { get; init; } = new();
+
+    /// <summary>Gets the <c>epicTool</c> section (epic branch naming; Plan C).</summary>
+    public EpicSection EpicTool { get; init; } = new();
+
     /// <summary>Gets the epic branch name.</summary>
     [JsonIgnore]
     public string EpicBranch => EpicBranchTemplate.Replace("{epic}", Epic, StringComparison.Ordinal);

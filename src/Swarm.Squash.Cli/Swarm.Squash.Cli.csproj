@@ -6,7 +6,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>squash</ToolCommandName>
     <PackageId>Swarm.Squash</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>NOT REAL placeholder package id (unclaimed on nuget.org; dependency-confusion risk). Lands a task branch on its epic as one trailer-stamped commit, for agent swarms.</Description>
   </PropertyGroup>
   <ItemGroup>

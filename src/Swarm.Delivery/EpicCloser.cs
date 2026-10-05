@@ -51,8 +51,16 @@ public sealed record EpicCloseResult(
 /// Closes an epic: <c>merge --no-ff</c> onto the active branch, never squashed. The merge is made in a temporary detached
 /// worktree under the per-epic lock that batch run and squash run take, so no run can move the epic meanwhile; the active
 /// branch then moves only from the commit the merge was built on (fast-forward of the worktree where it is checked out,
-/// else a compare-and-swap ref update). Every failure before that move leaves the active branch, the epic record and the
-/// epic branch untouched.
+/// else a compare-and-swap ref update), never while any worktree is rebasing it, and the record is saved closed only after
+/// the branch is verified to point at the merge commit. Every failure before that move leaves the active branch, the epic
+/// record and the epic branch untouched.
+/// <para>
+/// Hook policy (as Plan A's integration worktree does for its tool-made merges): the merge commit is made with
+/// <c>--no-verify</c>, so the repository's <c>pre-merge-commit</c> and <c>commit-msg</c> hooks (e.g. commitlint) never see
+/// it, and with <c>--no-log</c>, so <c>merge.log</c> never appends a shortlog: its message is exactly
+/// <see cref="MergeMessage.Build"/>'s. The fast-forward of the user's worktree uses <c>--no-overwrite-ignore</c>, so an
+/// ignored local file (e.g. <c>.env</c>) that the epic adds is never replaced.
+/// </para>
 /// </summary>
 /// <param name="repo">The repository.</param>
 /// <param name="config">Validated config.</param>
@@ -72,8 +80,9 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
     /// <param name="options">Options.</param>
     /// <returns>The result (blocked, conflict and dry-run are results, not exceptions).</returns>
     /// <exception cref="ToolException">
-    /// Unknown or closed epic, missing target (3); epic lock held, target moved or cannot be moved, failed fast-forward,
-    /// failed merge or temporary worktree (4).
+    /// Unknown or closed epic, missing target (3); epic lock held, target moved, being rebased or cannot be moved, target
+    /// already containing the epic, failed fast-forward (including untracked or ignored files in the way), target not at
+    /// the merge commit after the update, failed merge or temporary worktree (4).
     /// </exception>
     public EpicCloseResult Close(string id, CloseOptions options)
     {
@@ -99,9 +108,12 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
         // The assessment above is a point-in-time read: blockers may have appeared before the lock was taken, so assess
         // again under it (and re-read the record: another epic close takes the same lock). The lock reads as
         // batch-running only because this close now holds it.
+        // The target's sha is read BEFORE the re-assessment, so the assessment (nothing-to-merge, behind/ahead) and the
+        // commit list describe at least this commit; if the target moves after this read, the compare-and-swap below fails.
         epic = OpenEpic(store, id);
+        var intoSha = git.Try("rev-parse", "--verify", "-q", GitRunner.HeadsRef(options.Into ?? epic.BaseBranch) + "^{commit}").StdOut.Trim();
         var status = assessor.Assess(epic, options.Into);
-        plan = Plan(git, epic, status with { Blockers = status.Blockers.Where(b => epicLock is null || b.Code != BlockerCodes.BatchRunning).ToList() }, options);
+        plan = Plan(git, epic, status with { Blockers = status.Blockers.Where(b => epicLock is null || b.Code != BlockerCodes.BatchRunning).ToList() }, options, intoSha);
         if (plan.Remaining.Count > 0)
         {
             return plan.Result(CloseResults.Blocked);
@@ -109,7 +121,11 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
 
         var into = plan.Status.Into;
         var tip = plan.Status.Tip!;
-        var intoSha = git.RevParse(GitRunner.HeadsRef(into));
+        if (intoSha.Length == 0)
+        {
+            throw new ToolException(ExitCodes.BadInput, $"branch '{into}' not found");
+        }
+
         var path = StatePaths.Guard(Path.Combine(manager.Root, "close-" + id), "close worktree");
         if (Discard(git, path) is { } stale)
         {
@@ -123,7 +139,8 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
         {
             git.Run("worktree", "add", "-q", "--detach", path, intoSha);
             var wt = git.At(path);
-            var r = wt.Try("merge", "--no-ff", "--no-edit", "-m", plan.Message, tip);
+            // Tool-made merge commit: no user hooks (--no-verify), no merge.log shortlog (--no-log); see the class remarks.
+            var r = wt.Try("merge", "--no-ff", "--no-edit", "--no-verify", "--no-log", "-m", plan.Message, tip);
             if (r.ExitCode != 0)
             {
                 var files = wt.Lines("diff", "--name-only", "--diff-filter=U");
@@ -138,6 +155,13 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
             }
 
             merge = wt.RevParse("HEAD");
+
+            // "Already up to date" exits 0 without a commit: never record a non-merge commit as the epic's merge.
+            if (string.Equals(merge, intoSha, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ToolException(ExitCodes.Environment, $"'{into}' already contains '{epic.Branch}' at {tip[..7]}; nothing merged", "check git log, then re-run epic close");
+            }
+
             AfterMerge?.Invoke(merge);
         }
         catch (ToolException e)
@@ -149,6 +173,16 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
         try
         {
             MoveActive(git, into, intoSha, merge, id);
+
+            // Verify before recording: the record must never say closed unless the target really points at the merge.
+            if (!StillAt(git, into, merge))
+            {
+                var now = git.Try("rev-parse", "--verify", "-q", GitRunner.HeadsRef(into)).StdOut.Trim();
+                throw new ToolException(
+                    ExitCodes.Environment,
+                    $"'{into}' does not point at the merge commit {merge} after the update (it is at {(now.Length > 0 ? now : "nothing")}); the epic was not recorded as closed",
+                    "another process changed the branch during close; check git reflog, then re-run epic close");
+            }
         }
         catch (ToolException e)
         {
@@ -179,12 +213,14 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
             : epic;
     }
 
-    // Applies --force (waivable blockers only) and builds the message for one assessment.
-    static ClosePlan Plan(GitRunner git, EpicRecord epic, EpicStatus status, CloseOptions options)
+    // Applies --force (waivable blockers only) and builds the message for one assessment; the commit list runs from
+    // intoSha (the commit the merge will be built on) when given, else from the target branch.
+    static ClosePlan Plan(GitRunner git, EpicRecord epic, EpicStatus status, CloseOptions options, string? intoSha = null)
     {
         IReadOnlyList<EpicBlocker> waived = options.Force ? status.Blockers.Where(b => b.Waivable).ToList() : [];
         var remaining = status.Blockers.Except(waived).ToList();
-        IReadOnlyList<TrailerCommit> commits = status.Tip is null ? [] : TrailerLog.Read(git, GitRunner.HeadsRef(status.Into), status.Tip);
+        var from = string.IsNullOrEmpty(intoSha) ? GitRunner.HeadsRef(status.Into) : intoSha;
+        IReadOnlyList<TrailerCommit> commits = status.Tip is null ? [] : TrailerLog.Read(git, from, status.Tip);
         return new ClosePlan(epic, status, commits, waived, remaining, MergeMessage.Build(epic, status.BatchEpic, status.Into, commits));
     }
 
@@ -203,25 +239,39 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
     }
 
     // Checked out somewhere (normally the user's main worktree, kept clean by the active-dirty blocker): fast-forward it so
-    // its files follow. Not checked out: compare-and-swap the ref.
+    // its files follow. Not checked out: compare-and-swap the ref. Never while a worktree is rebasing it: the worktree is
+    // detached then (so it reads as not checked out), and `git rebase --abort` would reset the branch, dropping the merge.
     static void MoveActive(GitRunner git, string into, string intoSha, string merge, string id)
     {
+        if (RebasingIn(git, into) is { } rebasing)
+        {
+            throw new ToolException(
+                ExitCodes.Environment,
+                $"'{into}' is being rebased in '{rebasing}'; nothing merged",
+                "finish or abort the rebase there (git rebase --continue or --abort), then re-run epic close");
+        }
+
         if (WorktreeList.CheckedOut(git, into) is { Prunable: false } active && Directory.Exists(active.Path))
         {
             var at = git.At(active.Path);
-            if (!string.Equals(at.RevParse("HEAD"), intoSha, StringComparison.OrdinalIgnoreCase))
+
+            // Same branch and same commit immediately before the fast-forward (the worktree may have switched branch since
+            // it was listed); the caller verifies the branch afterwards.
+            if (!string.Equals(at.Try("symbolic-ref", "-q", "HEAD").StdOut.Trim(), GitRunner.HeadsRef(into), StringComparison.Ordinal)
+                || !string.Equals(at.RevParse("HEAD"), intoSha, StringComparison.OrdinalIgnoreCase))
             {
                 throw Moved(into);
             }
 
-            var ff = at.Try("merge", "--ff-only", "--no-stat", merge);
+            // --no-overwrite-ignore: an ignored local file the epic adds (.env, appsettings.*.json) stops the fast-forward.
+            var ff = at.Try("merge", "--ff-only", "--no-stat", "--no-overwrite-ignore", merge);
             if (ff.ExitCode != 0)
             {
                 throw StillAt(git, into, intoSha)
                     ? new ToolException(
                         ExitCodes.Environment,
                         $"could not fast-forward '{into}' in '{active.Path}': {TextLines.OneLine(ff.StdErr.Length > 0 ? ff.StdErr : ff.StdOut)}; nothing merged",
-                        "move untracked files that the merge would overwrite; " + StaleLockHint)
+                        "move untracked or ignored files that the merge would overwrite; " + StaleLockHint)
                     : Moved(into);
             }
 
@@ -239,6 +289,28 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
         throw StillAt(git, into, intoSha)
             ? new ToolException(ExitCodes.Environment, $"could not move '{into}': {TextLines.OneLine(r.StdErr)}; nothing merged", StaleLockHint)
             : Moved(into);
+    }
+
+    // The worktree whose in-progress rebase (merge or apply backend) names refs/heads/<branch>, or null. Each worktree has
+    // its own git dir, so the state files are found through `rev-parse --git-path` run there.
+    static string? RebasingIn(GitRunner git, string branch)
+    {
+        var target = GitRunner.HeadsRef(branch);
+        foreach (var w in WorktreeList.Read(git).Where(w => !w.Prunable && Directory.Exists(w.Path)))
+        {
+            var at = git.At(w.Path);
+            foreach (var state in (string[])["rebase-merge/head-name", "rebase-apply/head-name"])
+            {
+                var p = at.Try("rev-parse", "--git-path", state);
+                var file = p.ExitCode == 0 ? Path.GetFullPath(Path.Combine(w.Path, p.StdOut.Trim())) : null;
+                if (file is not null && File.Exists(file) && string.Equals(File.ReadAllText(file).Trim(), target, StringComparison.Ordinal))
+                {
+                    return w.Path;
+                }
+            }
+        }
+
+        return null;
     }
 
     static bool StillAt(GitRunner git, string branch, string sha) =>

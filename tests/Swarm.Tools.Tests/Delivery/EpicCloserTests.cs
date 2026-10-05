@@ -275,6 +275,93 @@ public class EpicCloserTests
     }
 
     [Fact]
+    public void ActiveBranchBeingRebased_RefusesAndChangesNothing()
+    {
+        // The reviewer's scenario: main stopped at an `edit` step (clean tree, worktree detached). Moving main now would be
+        // undone by `git rebase --abort`, leaving a record that says closed.
+        using var f = new Fixture();
+        var m1 = f.Repo.Commit("m1", ("m.txt", "m\n"));
+        var git = new GitRunner(f.Repo.Root);
+        var stop = git.Try("-c", "sequence.editor=sed -i -e s/^pick/edit/", "rebase", "-i", "HEAD~1");
+        Assert.True(stop.ExitCode == 0, stop.StdErr);
+        Assert.Equal("HEAD", f.Repo.Git("rev-parse", "--abbrev-ref", "HEAD"));
+        try
+        {
+            var e = Assert.Throws<ToolException>(() => f.Close());
+            Assert.Equal(ExitCodes.Environment, e.ExitCode);
+            Assert.Contains("'main' is being rebased in", e.Message);
+            Assert.Contains("rebase --continue or --abort", e.Hint);
+            Assert.DoesNotContain('\n', e.Message);
+            Assert.Equal(m1, f.Repo.Sha("main"));
+            Assert.Equal(EpicStates.Open, f.Store.Get("42").State);
+            Assert.True(f.LockFree());
+        }
+        finally
+        {
+            git.Try("rebase", "--abort");
+        }
+
+        Assert.Equal(m1, f.Repo.Sha("main"));
+    }
+
+    [Fact]
+    public void IgnoredLocalFileTheEpicAdds_IsNotOverwritten()
+    {
+        using var f = new Fixture();
+        f.OnEpic("9935: add secret\n\nTicket: 9935", ("secret.txt", "from epic\n"));
+        var mainNow = f.Repo.Commit("ignore secret", (".gitignore", "secret.txt\n"));
+        var secret = Path.Combine(f.Repo.Root, "secret.txt");
+        File.WriteAllText(secret, "mine\n");
+        var e = Assert.Throws<ToolException>(() => f.Close());
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("could not fast-forward 'main'", e.Message);
+        Assert.Equal("mine\n", File.ReadAllText(secret));
+        Assert.Equal(mainNow, f.Repo.Sha("main"));
+        Assert.Equal(EpicStates.Open, f.Store.Get("42").State);
+    }
+
+    [Fact]
+    public void TargetComesToContainTheEpicBeforeTheLock_IsBlockedNotRecorded()
+    {
+        using var f = new Fixture();
+        f.Repo.Git("checkout", "-q", "-b", "other", f.MainBefore);
+        var closer = f.Closer();
+        closer.BeforeLock = () => f.Repo.Git("update-ref", "refs/heads/main", f.Repo.Sha(Epic));
+        var r = closer.Close("42", new CloseOptions(Force: true));
+        Assert.Equal(CloseResults.Blocked, r.Result);
+        Assert.Equal(BlockerCodes.NothingToMerge, Assert.Single(r.Blockers).Code);
+        Assert.Equal(f.Repo.Sha(Epic), f.Repo.Sha("main"));
+        Assert.Equal(EpicStates.Open, f.Store.Get("42").State);
+    }
+
+    [Fact]
+    public void RejectingHooks_DoNotRunOnTheToolMadeMerge()
+    {
+        using var f = new Fixture();
+        var hooks = Path.GetFullPath(Path.Combine(f.Repo.Root, f.Repo.Git("rev-parse", "--git-path", "hooks")));
+        Directory.CreateDirectory(hooks);
+        foreach (var hook in (string[])["commit-msg", "pre-merge-commit"])
+        {
+            File.WriteAllText(Path.Combine(hooks, hook), "#!/bin/sh\necho rejected by policy >&2\nexit 1\n");
+        }
+
+        var r = f.Close();
+        Assert.Equal(CloseResults.Merged, r.Result);
+        Assert.Equal(r.MergeCommit, f.Repo.Sha("main"));
+        Assert.Equal(3, f.Repo.Git("rev-list", "--parents", "-n", "1", "main").Split(' ').Length);
+    }
+
+    [Fact]
+    public void MergeLogConfig_DoesNotChangeTheToolsMessage()
+    {
+        using var f = new Fixture();
+        f.Repo.Git("config", "merge.log", "true");
+        var r = f.Close();
+        Assert.Equal(CloseResults.Merged, r.Result);
+        Assert.Equal(r.Message, f.Repo.Git("log", "-1", "--format=%B", "main").TrimEnd('\n'));
+    }
+
+    [Fact]
     public void Conflict_ReportsFilesAndLeavesMainAlone()
     {
         using var f = new Fixture();

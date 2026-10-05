@@ -121,3 +121,41 @@ Cross-plan facts:
 - `GitRunner` gained `WithEnvironment`; `SwarmConfig` gained `lander` and `squash` (old files stay valid, unknown keys still rejected); `baseBranch` is now used by the squash lander.
 - Azure DevOps (`example-org`): epic branches must be `feature/` or `bugfix/` through `epicBranchTemplate`; the tool does not enforce this.
 - Bare `dnx Swarm.Squash@0.1.0` (the renderer sample's runbook step) exits 2 and changes nothing; the sample's separate `tool:squash` step is a mismatch for a later renderer change.
+
+## Worktree + epic production plan (2026-10-05)
+
+Plan: [2026-10-03-worktree-epic.md](plans/2026-10-03-worktree-epic.md). Tool reference: [worktree-epic-tools.md](worktree-epic-tools.md). The rows below are as built; where the build differs from the plan's text, the build is recorded.
+
+| Decision | Choice |
+|---|---|
+| Config | Same `.swarm/batch.json`; new sections `worktree` and `epicTool` only (`epic` is taken by the batch epic id); reuses `worktreeRoot`, `baseBranch`, `stateDir`, `epicBranchTemplate`. |
+| Branch naming | Templates with `{id}`, `{slug}`, `{kind}`; `allowedPrefixes` checked at config load and before creation; example-org uses `{kind}/{id}-{slug}` with `feature/`, `bugfix/` only. |
+| Managed worktrees | Identified by `branch.<b>.swarm-*` git config, not by path; `<worktreeRoot>/t-<ticket>`. |
+| Merged detection | Batch ledger, ancestry, or merge-tree content equality (squash-aware). The ledger is epic-scoped and trusted only when the branch's current tip is no newer than the landing run's start (review ruling C4). |
+| Prune safety | Locked never removed; dirty/unmerged/empty only with `--force`; `--dry-run`; per-item failures, exit 4. As built, each removal is a per-worktree `git worktree remove` (no repository-wide `git worktree prune`) and branch deletion is a guarded `update-ref -d <branch> <assessed tip>` plus removal of the `branch.<b>.*` section, not `git branch -D`. |
+| Epic close | `--no-ff` merge in a temp worktree, fast-forward the checked-out active branch (`--ff-only --no-overwrite-ignore`) or CAS the ref; refused while any worktree rebases the target; verified before the record is saved; blockers shared with `epic status`; `--force` waives only run-state blockers (`tasks-returned`, `run-unfinished`, `worktrees-unmerged`); `epic close` takes the shared per-epic lock itself and re-assesses under it. |
+| Close hooks (review ruling C6, for the human) | The tool-made merge commit uses `--no-verify` and `--no-log`, consistent with `batch`'s integration merges (`--no-verify`): local `commit-msg` and `pre-merge-commit` policies never see epic merge commits. Alternative not chosen: keep the hooks and accept exit 4 for a hook rejection. |
+| `--delete-branch` | Guarded `update-ref -d <epic> <merged tip>` plus removal of `branch.<epic>.*`, skipped with a warning when the epic moved or is checked out in any worktree (the plan's `git branch -d` was not used). |
+| CLI warnings | `epic close` prints every `warnings` entry as a `warning:` stderr line for every result, before the `blocked`/`conflict` error line; the JSON keeps them in `warnings`. |
+| Squash interplay | Own commits are those whose `Epic:` trailer is the epic id or its batch epic id (what the squash lander stamps); `Batch: 0` is shown as manual and runs are counted from `Swarm-Run:`; `squash run` writes no run state, so returned tasks it landed are cleared through the merged check; `batch-running` covers both tools' shared per-epic lock. |
+| Versions | `Swarm.Worktree` 0.1.0 and `Swarm.Epic` 0.1.0 (NOT REAL placeholder ids); `Swarm.TestGate` 0.1.2, `Swarm.Batch` 0.2.1 and `Swarm.Squash` 0.1.1 re-packed because their strict config loaders reject the new sections. All five were run through `dnx` from a local feed on 2026-10-05 ([dnx-invocation-notes.md](dnx-invocation-notes.md#worktree-and-epic-010)); nothing is published. |
+
+Review rulings (C1 to C6 of the review ledger, C0 being a process ruling; distinct from the plan's global constraints C1 to C11):
+
+| # | Ruling |
+|---|---|
+| C1 | Plan B's test fixture `SquashFixture.Worktree(repo)` was renamed `IntegrationFor`, because the new namespace `Swarm.Worktree` hides it (`CS0118`). |
+| C2 | No orphan sweep in this plan: after a held-file removal failure git 2.54 has already deregistered the worktree, and `batch`, `squash run` and `worktree create` run a repository-wide `git worktree prune` that deregisters worktrees whose directories are gone; such task branches and their `swarm-*` metadata are never cleaned up by the tools. |
+| C3 | Open, for the human (testgate + batch code): `RunDirectories.Prune` keeps the newest 20 finished runs across all epics, so a busy epic can delete another epic's run evidence behind `tasks-returned`. Fix: prune per epic. |
+| C4 | Ledger trust: see "Merged detection" above. |
+| C5 | `worktree prune`'s stderr line is `<n> prune item(s) failed (see items[].error in the report on stdout)`; the exit code and stdout are unchanged. |
+| C6 | Open, for the human: the close hook policy above. |
+
+Cross-plan facts:
+
+- Production code references no Plan B project; `Swarm.Delivery` re-implements the squash lander's title rule (`MergeMessage.Title`) instead. Plan A and B public surfaces changed only additively: the `worktree` and `epicTool` config sections and `SlotSemaphore.BlocksAcquire` (the lock acquire rule, now shared by `epic status`/`close`); `ILander` and `Program.Run(args, stdout, stderr, cwd, ILander)` are untouched.
+- `batch`'s integration merges and `epic close` both bypass hooks with `--no-verify` (C6).
+- A crashed local `batch` or `squash run` blocks `epic close` (not waivable) until its lock is older than `expirySec`.
+- The cost of a ticket-less task under `squash.requireTicket` for its batch-mates is recorded in [squash-tool.md](squash-tool.md#known-limitations); `epic status` shows such a return's real reason from git's output.
+- Stale registrations whose directory still exists are kept by `worktree prune` forever, also with `--force`; a human inspects them.
+- Open, found by the `dnx` run (not fixed): `GitRunner` (Plan A) runs every git call with `-c core.autocrlf=false`, so under Git for Windows' default `core.autocrlf=true` a tracked file git checked out with CRLF can read as modified to the tools while `git status` is clean; `epic close` is then blocked by `active-dirty`, which `--force` cannot waive ([worktree-epic-tools.md](worktree-epic-tools.md#known-limitations)). Fix: run the dirty checks of user worktrees with the repository's own line-ending settings.

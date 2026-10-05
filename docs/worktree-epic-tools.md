@@ -7,21 +7,22 @@ status: current
 
 Two .NET tools for agent swarms that work on one epic branch: `worktree` creates, lists and prunes per-task git worktrees branched from the epic branch, and `epic` opens, closes and reports on epics. Plan: [2026-10-03-worktree-epic.md](plans/2026-10-03-worktree-epic.md). Companion tools: [batch-tools.md](batch-tools.md), [squash-tool.md](squash-tool.md).
 
-This page currently documents `worktree` and the shared branch naming. The `epic` half is not written yet (its tool is a later task of the plan).
+Sections: [Branch naming](#branch-naming), [worktree](#worktree), [Prune rules](#prune-rules), [epic](#epic), [Close blockers](#close-blockers), [Status for orchestrators](#status-for-orchestrators), [Exit codes](#exit-codes), [Windows notes](#windows-notes), [Known limitations](#known-limitations).
 
-Written on 2026-10-05 from the source and by running the built tool (Windows 11, git 2.54.0.windows.1, .NET SDK 10, a scratch repository, the Release build and `dnx.cmd` from a local feed). Each statement was checked by reading the named source, by a named test or by running the command; anything else is labelled `unverified`.
+Written on 2026-10-05 from the source and by running the built tools (Windows 11, git 2.54.0.windows.1, .NET SDK 10.0.401, scratch repositories, the Release build and `dnx.cmd` from a local feed; the full `dnx` run of all five tools is in [dnx-invocation-notes.md](dnx-invocation-notes.md#worktree-and-epic-010)). Each statement was checked by reading the named source, by a named test or by running the command; anything else is labelled `unverified`.
 
 ## Requirement and package status (NOT REAL)
 
 - Requires the .NET 10 SDK or later (`dnx` ships with it). git 2.31 or later is the plan's floor; squash-landed work is detected only with git 2.38 or later (see [Prune rules](#prune-rules)). Only git 2.54 was run (`unverified` on older versions).
 - **NOT REAL: nothing is published.** `Swarm.Worktree` (and `Swarm.Epic`) are placeholder package ids that nobody owns on nuget.org (checked on 2026-10-05: `https://api.nuget.org/v3-flatcontainer/swarm.worktree/index.json` and `.../swarm.epic/index.json` both returned HTTP 404; see also [definition-format.md](definition-format.md)), so anyone could publish under them and `dnx` would download and run it (dependency confusion). Run them only with `--add-source <your feed>`. Before any publish: reserve an owned id prefix and add license, authors and readme metadata (`dotnet pack` currently prints `The package Swarm.Worktree.0.1.0 is missing a readme`; no metadata was added).
-- Version as built: `Swarm.Worktree` 0.1.0. dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)). dnx rules: no `--yes`, `dnx.cmd` in Git Bash, `--` before the tool's own arguments.
+- Versions as built: `Swarm.Worktree` 0.1.0 and `Swarm.Epic` 0.1.0 (`dotnet pack` of `Swarm.Epic` prints the same missing-readme message). dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)). dnx rules: no `--yes`, `dnx.cmd` in Git Bash, `--` before the tool's own arguments.
 
 ```bash
 dnx.cmd Swarm.Worktree@0.1.0 --add-source FEED -- list
+dnx.cmd Swarm.Epic@0.1.0 --add-source FEED -- status
 ```
 
-- **Shared config.** `worktree` reads the same `.swarm/batch.json` as testgate, batch and squash (lookup, strict keys and the error format: [batch-tools.md](batch-tools.md#configuration) and [squash-tool.md](squash-tool.md#configuration)). Every tool's loader rejects unknown keys, so a config that uses the `worktree` or `epicTool` section needs `Swarm.TestGate` 0.1.2 or later, `Swarm.Batch` 0.2.1 or later and `Swarm.Squash` 0.1.1 or later. After any config schema change re-pack every tool (with a bumped version), or the older packages reject the file.
+- **Shared config.** `worktree` and `epic` read the same `.swarm/batch.json` as testgate, batch and squash (lookup, strict keys and the error format: [batch-tools.md](batch-tools.md#configuration) and [squash-tool.md](squash-tool.md#configuration)). Every tool's loader rejects unknown keys, so a config that uses the `worktree` or `epicTool` section needs `Swarm.TestGate` 0.1.2 or later, `Swarm.Batch` 0.2.1 or later and `Swarm.Squash` 0.1.1 or later. After any config schema change re-pack every tool (with a bumped version), or the older packages reject the file.
 
 ## Branch naming
 
@@ -146,9 +147,196 @@ error: 1 prune item(s) failed (see items[].error in the report on stdout)
 
 `git worktree list` afterwards no longer showed `t-8`, while the directory `t-8` and the branch `task/8-held` were still there.
 
+## epic
+
+```text
+epic open <id> <slug> [--from <branch>] [--kind <k>]
+epic status [<id>] [--into <branch>]
+epic close <id> [--into <branch>] [--force] [--dry-run] [--delete-branch]
+            each also: [--config FILE] [--state DIR] [--slots N] [--max-wait SEC] [--verbosity quiet|normal|detail]
+epic --version
+```
+
+(Summary of the options in `src/Swarm.Epic.Cli/Program.cs`, not the verbatim `--help`.) `--slots` and `--max-wait` are the shared common options, accepted and ignored. Every command prints exactly one JSON line with `schemaVersion: 1` on success (see [Exit codes](#exit-codes) for `close`).
+
+**Branch model** ([workflow.md](workflow.md), sections 2 and 4). An epic branch is cut from the active branch (config `baseBranch`, or `--from`). Tasks work in worktrees branched from it ([worktree](#worktree)); `batch` and `squash run` land each ticket on the epic branch as one squashed, trailer-stamped commit ([squash-tool.md](squash-tool.md#what-lands)). `epic close` lands the epic on the active branch with one `--no-ff` merge commit and never squashes it, so `git log --first-parent <active branch>` reads one line per epic and the ticket commits stay reachable through the merge's second parent (`EpicCloserTests` assert the parent count; `EpicCliTests.Close_Merged_Exit0` asserts three entries in `rev-list --parents -n 1`).
+
+### open
+
+- Renders the branch from the `epicTool` section ([Branch naming](#branch-naming); default `epic/<id>-<slug>`), checks it with `git check-ref-format --branch` (exit 2), then creates it at the base branch's current commit **without checking it out**: `batch` and `squash run` refuse an epic branch that is checked out (exit 3), so it must stay free.
+- Writes the record `<state>/epics/<id>.json` (`EpicRecord`: `schemaVersion`, `id`, `slug`, `branch`, `baseBranch`, `baseCommit`, `createdUtc`, `state` (`open` or `closed`), `closedUtc`, `mergeCommit`, `mergedInto`). `<state>` is the shared run-state directory (config `stateDir`, default `.docs/runs` in the main worktree). `worktree create --epic <id>` reads the branch from this record.
+- **Idempotent.** The same id and slug on an existing open epic whose branch exists prints `"created": false` and the stored record (`EpicOpenerTests.Open_IsIdempotent`); `--from` is not re-checked then. The same id with another branch, or a closed epic with that id, is exit 3 (`epic '<id>' already exists as '<branch>' (<state>)`, hint `use another id`); an existing branch without a record is exit 3 (`branch '<b>' already exists`); a missing base is exit 3 (`base branch '<b>' not found`). A disallowed `--kind` is exit 2 with the example-org hint and creates neither branch nor record (`EpicOpenerTests.FixKind_CreatesNothing`, `EpicCliTests.Open_DisallowedKind_Exit2NoStdout`); for the other failures "nothing created" is read from the code (every check runs before `git branch`) and not asserted by a test.
+- stdout, `EpicOpenResult`: `schemaVersion`, `created`, `id`, `slug`, `branch`, `baseBranch`, `baseCommit`, `batchEpic`, `warnings`. Each warning also goes to stderr as a `warning: ...` line, never to stdout (`EpicCliTests.Open_WarningsGoToStderrNotStdout`).
+
+**`batchEpic` and choosing `epicBranchTemplate`.** `batch run --epic <x>` and `squash run --epic <x>` address the branch `epicBranchTemplate` with `{epic}` replaced by `x` (default `epic/{epic}`). `batchEpic` is the `x` that maps back to this epic's branch (`EpicNaming.BatchEpicId`), so with the defaults `epic/42-auth` has batch epic id `42-auth` (run: `open 42 auth` printed `"batchEpic":"42-auth"`). When the template cannot express the branch, `batchEpic` is null and the warning is `batch cannot address '<branch>' with epicBranchTemplate '<template>'; change epicBranchTemplate (e.g. to the epic branch prefix + {epic})` (`EpicOpenerTests.UnaddressableByBatch_WarnsWithNullBatchEpic`). Choose `epicBranchTemplate` as the epic branch prefix plus `{epic}`: for example-org, with `epicTool.branchTemplate` `{kind}/{id}-{slug}`, use `feature/{epic}` so that batch addresses `feature/9933-login` as `--epic 9933-login` (`EpicOpenerTests.BatchEpicId_InvertsTheBatchTemplate`). Bugfix epics then need a second config (or `epicBranchTemplate` `bugfix/{epic}`), since one template has one prefix.
+
+### status
+
+`epic status` prints one `EpicStatusList` line: `schemaVersion` and `epics`, one [`EpicStatus`](#status-for-orchestrators) per epic, every epic in the state directory ordered by id, or just `<id>`. An unknown id is exit 3 (`epic '<id>' not found in <state>\epics`, hint `open it first: epic open <id> <slug>`; `EpicCliTests.Status_AllAndOne`). `--into` names the branch to assess against (default: the epic's `baseBranch`); a missing one is exit 3 (`branch '<b>' not found`). With no epics the list is empty and the exit is 0 (from the code: `EpicStore.All` returns nothing for a missing directory; not run).
+
+### close
+
+`epic close <id>` re-checks the [close blockers](#close-blockers) and, when none remain, merges the epic `--no-ff` into `--into` (default: the epic's `baseBranch`), records the epic as closed (`state`, `closedUtc`, `mergeCommit`, `mergedInto`) and prints one `EpicCloseResult` line:
+
+| Field | Meaning |
+|---|---|
+| `schemaVersion` | 1 |
+| `result` | `merged` (exit 0), `dry-run` (exit 0), `blocked` (exit 1) or `conflict` (exit 1) |
+| `id`, `branch`, `into` | the epic, its branch and the target branch |
+| `mergeCommit` | the merge commit (`merged` only, else null) |
+| `tickets` | tickets from the `Ticket:` trailers of the commits being merged, in first-seen order |
+| `blockers` | blockers that stopped the close (`blocked` only) |
+| `waived` | blockers waived by `--force` |
+| `conflictFiles` | conflicting files (`conflict` only) |
+| `message` | the merge message ([format](#the-merge-message)) |
+| `branchDeleted` | true when `--delete-branch` deleted the epic branch |
+| `warnings` | one-line warnings that did not stop the close |
+
+- **Warnings go to stderr for every result.** Each `warnings` entry is printed as `warning: <w>` on stderr after the JSON line and before any `error:` line, whatever the result (`EpicCliTests.Close_DeleteBranchCheckedOut_KeepsBranchAndPrintsWarning` pins the `merged` case; in this build only `merged` and `conflict` results can carry warnings; the order (warnings, then the `error:` line) and the `conflict` and `blocked` cases are pinned on the CLI's printer with constructed results: `EpicCliTests.ReportClose_Conflict_PrintsWarningsThenTheErrorLine`, `ReportClose_Blocked_PrintsWarningsBeforeTheErrorLine`, `ReportClose_Merged_PrintsWarningsAndNoError`; a real close whose conflict carried a warning was not run). Warnings are: the temporary close worktree could not be removed (also after a conflict), the epic branch moved during the close (only its commits up to the merged tip are merged; the branch is kept), or `--delete-branch` kept the branch.
+- **`--dry-run`** runs every check and builds the message, changes nothing and prints `result: dry-run` (`EpicCliTests.Close_DryRun_Exit0_NothingChanged`).
+- **`--force`** waives only the waivable blockers (`tasks-returned`, `run-unfinished`, `worktrees-unmerged`); they are listed in `waived`. Every other blocker still blocks (`EpicCloserTests.Force_DoesNotWaiveActiveDirty`, `Force_DoesNotWaiveNothingToMerge`, `BatchRunning_BlocksEvenWithForce`).
+- **`--delete-branch`** deletes the epic branch after the merge with a guarded `git update-ref -d refs/heads/<epic> <merged tip>`, then removes its `branch.<epic>.*` config section. It is not `git branch -d` (which would refuse a branch not merged into the current HEAD). The branch is kept, with a warning, when it moved after the merge (`DeleteBranch_KeepsEpicThatMovedDuringClose`) or when it is checked out in any worktree (`'<epic>' was kept: it is checked out at '<path>'`; `DeleteBranch_KeepsEpicCheckedOutInAWorktree`, and through the CLI `EpicCliTests.Close_DeleteBranchCheckedOut_KeepsBranchAndPrintsWarning`). Run: `close 42 --delete-branch` printed `"branchDeleted":true` and `git branch --list` showed only `main`.
+- A second close of a closed epic is exit 3 with no stdout: `error: epic '42' is already closed (merged into 'main' at <sha>)` (run).
+
+Run record, verbatim from the [dnx run](dnx-invocation-notes.md#worktree-and-epic-010) (rows C33 and C34; one ticket landed by `squash run`, one by `batch`; the paths are those of the scratch run):
+
+```text
+$ dnx.cmd Swarm.Epic@0.1.0 --add-source FEED -- close 42 --delete-branch
+[stdout]
+{"schemaVersion":1,"result":"merged","id":"42","branch":"epic/42-auth","into":"main","mergeCommit":"51d535858eb130b5441a66f80499086f86e273a0","tickets":["9933","9934"],"blockers":[],"waived":[],"conflictFiles":[],"message":"Merge epic 42-auth (epic/42-auth) into main\n\nEpic: 42 (batch epic 42-auth)\nTickets: 9933, 9934\nRuns: 2\n\n- 9933 (manual): Login\n- 9934 (batch 1): Logout","branchDeleted":true,"warnings":[]}
+[stderr]
+[exit 0, 18.3 s]
+
+$ dnx.cmd Swarm.Epic@0.1.0 --add-source FEED -- close 42
+[stdout]
+[stderr]
+error: epic '42' is already closed (merged into 'main' at 51d535858eb130b5441a66f80499086f86e273a0)
+[exit 3, 5.1 s]
+```
+
+A blocked close (exit 1) prints the JSON line with `result: blocked` and then one stderr line, `error: epic '<id>' not closed: <first blocker's detail> (<n> blocker(s); see blockers)` (`EpicCliTests.Close_Blocked_Exit1WithJsonAndOneErrorLine`). A conflict (exit 1) prints the JSON line with `result: conflict` and `error: merging '<branch>' into '<into>' conflicts in <files> (merge '<into>' into the epic and resolve, then close again)` (`EpicCliTests.Close_Conflict_Exit1`); nothing moves (`EpicCloserTests.Conflict_ReportsFilesAndLeavesMainAlone`; in the run, `main` stayed at its own last commit and no `close-43` worktree was left). Verbatim from the same run (rows C31 and C44): a tracked edit in `main` blocks even with `--force` (`active-dirty` is not waivable), and a second epic that changes the same line of `shared.txt` as `main` conflicts:
+
+```text
+$ dnx.cmd Swarm.Epic@0.1.0 --add-source FEED -- close 42 --force
+[stdout]
+{"schemaVersion":1,"result":"blocked","id":"42","branch":"epic/42-auth","into":"main","mergeCommit":null,"tickets":["9933","9934"],"blockers":[{"code":"active-dirty","detail":"\u0027main\u0027 is checked out at \u0027<scratch>\\smoke\u0027 with uncommitted changes to tracked files","waivable":false}],"waived":[],"conflictFiles":[],"message":"Merge epic 42-auth (epic/42-auth) into main\n\nEpic: 42 (batch epic 42-auth)\nTickets: 9933, 9934\nRuns: 2\n\n- 9933 (manual): Login\n- 9934 (batch 1): Logout","branchDeleted":false,"warnings":[]}
+[stderr]
+error: epic '42' not closed: 'main' is checked out at '<scratch>\smoke' with uncommitted changes to tracked files (1 blocker(s); see blockers)
+[exit 1, 12.5 s]
+
+$ dnx.cmd Swarm.Epic@0.1.0 --add-source FEED -- close 43
+[stdout]
+{"schemaVersion":1,"result":"conflict","id":"43","branch":"epic/43-conflict","into":"main","mergeCommit":null,"tickets":["9935"],"blockers":[],"waived":[],"conflictFiles":["shared.txt"],"message":"Merge epic 43-conflict (epic/43-conflict) into main\n\nEpic: 43 (batch epic 43-conflict)\nTickets: 9935\nRuns: 1\n\n- 9935 (manual): Change shared","branchDeleted":false,"warnings":[]}
+[stderr]
+error: merging 'epic/43-conflict' into 'main' conflicts in shared.txt (merge 'main' into the epic and resolve, then close again)
+[exit 1, 18.0 s]
+```
+
+On Windows, restoring such an edit with `git checkout -- <file>` can leave `active-dirty` firing on a worktree that `git status` calls clean (a line-ending bug; see [Known limitations](#known-limitations)).
+
+## Close blockers
+
+`epic status` and `epic close` compute blockers with one function, `EpicAssessor.Assess`, so `status` reports exactly what `close` would enforce at that moment. `readyToClose` is true when there are none.
+
+| Code | Meaning | Waivable with `--force` |
+|---|---|---|
+| `batch-running` | a live holder of the per-epic lock `<state>/locks/batch-<batch epic id>`, which `batch run` and `squash run` share; detail `a batch or squash run holds epic '<id>'; wait for it to finish` | no |
+| `run-unfinished` | a batch run of this epic has no `summary.json` (crashed or killed); not raised while the lock is held | yes |
+| `tasks-returned` | tasks returned or left unprocessed by their latest run that have not landed since; detail `<n> task(s) not landed: <task> (<final or state>), ...` | yes |
+| `worktrees-unmerged` | managed task worktrees on the epic with unmerged commits, uncommitted edits (even when the branch reads as merged), a state that could not be assessed, or a stale registration whose directory exists | yes |
+| `nothing-to-merge` | the epic has no commits that are not on the target | no |
+| `active-dirty` | the target branch is checked out in a worktree with changes to **tracked** files (untracked files do not count: `UntrackedOnly_DoesNotBlock`) | no |
+| `active-behind-upstream` | the target is behind its upstream **as last fetched** (`'<into>' is <n> commit(s) behind '<upstream>' as last fetched; pull first`) | no |
+| `epic-closed` | the epic is already closed | no |
+| `branch-missing` | the epic branch does not exist | no |
+
+Rules the tests pin (`EpicAssessorTests`, `EpicCloserTests`):
+
+- **The lock rule is the acquire rule.** `batch-running` uses `SlotSemaphore.BlocksAcquire`, the same rule `batch` and `squash run` use to take the lock: a lock with a fresh heartbeat always counts, even when its holder looks dead (`LockHolder_CountsAsRunningOnlyWhenBatchCouldNotTakeTheLock`, `FreshLockWhoseHolderCannotBeConfirmed_BlocksAsRunning`). So a crashed **local** run keeps blocking (not waivable) until its lock is older than `expirySec`.
+- **`epic close` takes the per-epic lock itself** (same construction as `batch` and `squash run`: one slot, no wait) around the merge, then assesses again under it, so a run cannot move the epic during the merge (`EpicLock_HeldDuringMergeAndReleasedAfter`, `BlockerAppearingBeforeLock_IsCaughtByReassessment`). A lock held when the close starts is the `batch-running` blocker (exit 1); a lock taken between the first assessment and the close's own acquire is exit 4 (`a batch or squash run holds epic '<id>'; nothing merged`; `LockTakenAfterAssessment_FailsWithEnvironmentAndChangesNothing`). An epic without a batch epic id has no lock, because neither tool can reach its branch.
+- **Returned tasks clear when they land later.** A task returned by one run and landed by a later run no longer blocks (`ReturnedTask_BlocksUntilALaterRunLandsIt`). `squash run` writes no run state, so a returned task landed later by `squash run` is cleared through the merged check of [Prune rules](#prune-rules) (ancestry or content on the epic): `ReturnedTask_LandedLaterBySquashRun_DoesNotBlock` runs a real `SquashRunner`. An unprocessed task with no branch recorded cannot be checked that way and keeps blocking (waivable).
+- **Runs of other epics are ignored** (`RunsOfOtherEpics_AreIgnored`), and an empty or partly pruned run folder does not crash the assessment (`EmptyOrPartlyPrunedRunFolder_DoesNotCrash`).
+
+**Close mechanics.**
+
+1. The merge is made in a tool-owned detached worktree `<worktreeRoot>/close-<id>` (a previous one left behind is replaced: `StaleCloseWorktree_IsReplaced`) at the commit of the target read under the lock: `git merge --no-ff --no-edit --no-verify --no-log -m <message> <epic tip>`, with the user's git identity. The temporary worktree is removed afterwards; if a file there is held open, the result carries a warning naming what is left (`HeldFileInCloseWorktree_ReportedNotClaimedRemoved`).
+2. **Hooks (review ruling C6).** The tool-made merge commit uses `--no-verify`, so the repository's `pre-merge-commit` and `commit-msg` hooks (for example commitlint) never see it (`RejectingHooks_DoNotRunOnTheToolMadeMerge`), and `--no-log`, so `merge.log` never appends a shortlog and the message is exactly the one below (`MergeLogConfig_DoesNotChangeTheToolsMessage`). This matches `batch`'s integration merges, which also use `--no-verify` (`IntegrationWorktree`). The alternative, not chosen: keep the hooks and let a hook rejection fail the close with exit 4. A team that enforces commit-message rules on the active branch therefore gets epic merge commits that bypass them.
+3. "Already up to date" (the target already contains the epic) is never recorded: it is exit 4 (`TargetComesToContainTheEpicBeforeTheLock_IsBlockedNotRecorded`).
+4. **Moving the target.** If the target is checked out in a worktree (normally the main one), that worktree is fast-forwarded with `git merge --ff-only --no-overwrite-ignore`, so its files follow (`ActiveCheckedOut_FastForwardsWorkingTree`); an untracked file in the way, or an **ignored** local file the epic adds (for example `.env`), stops it with exit 4 and nothing merged (`UntrackedFileInTheWay_FailsFastForwardAndChangesNothing`, `IgnoredLocalFileTheEpicAdds_IsNotOverwritten`). Otherwise the ref moves with a compare-and-swap `git update-ref` from the commit the merge was built on (`ActiveNotCheckedOut_UpdatesRefOnly`). A target that moved meanwhile is exit 4, `'<into>' moved during close; nothing merged` (`TargetMovedDuringClose_*`); a ref that cannot be locked reports git's reason with a stale-lock hint naming `refs/heads/<branch>.lock` or, in reftable repositories (the default of `git init` with git 2.54 here), `reftable/tables.list.lock` (`StaleRefLock_ReportsGitsReasonNotMoved`).
+5. **Rebase guard.** If any worktree is rebasing the target branch (merge or apply backend), close is exit 4 with `'<into>' is being rebased in '<path>'; nothing merged`, because `git rebase --abort` would reset the branch and drop the merge (`ActiveBranchBeingRebased_RefusesAndChangesNothing`).
+6. After the move the target is verified to point at the merge commit, and only then is the record saved as closed. Every failure before the move leaves the target, the record and the epic branch untouched.
+7. **No fetch, no push.** The tool never contacts a remote. "Behind upstream" compares with the last fetched upstream ref, so a stale fetch lets a close through: fetch before closing.
+
+### The merge message
+
+Built by `MergeMessage.Build` from the commits `<target>..<epic tip>` (oldest first, merges excluded) and their trailers. Example from `MergeMessageTests.Build_ListsTicketsRunsUntrackedAndForeign`:
+
+```text
+Merge epic 42-auth (epic/42-auth) into main
+
+Epic: 42 (batch epic 42-auth)
+Tickets: 9933, 9934, 9935, 9936, 9999
+Runs: 4
+
+- 9933 (batch 1): Login form
+- 9934 (batch 2): Token refresh
+- 9935 (manual): Hotfix
+- 9936 (batch 1): Older stamp
+- 9999 (batch 2): Stray
+
+Commits without a Ticket: trailer: 1
+Commits naming another epic: ddddddd (Epic: 7)
+```
+
+- The commit is the epic's own when its `Epic:` trailer is the epic id or its batch epic id (the squash lander stamps the batch epic id, here `42-auth`); a commit naming another epic is listed under `Commits naming another epic`.
+- Each ticketed commit is one line. The leading ticket is dropped from `{ticket}: {title}` subjects (also `{ticket} - {title}`), as the squash lander's own title rule does; a subject that would become empty is kept whole (`Title_DropsALeadingTicketLikeTheSquashLander`).
+- `Batch: 0` (a `squash run` landing) shows as `manual`, other values as `batch <n>`.
+- `Runs: <n>` counts distinct `Swarm-Run:` values, because batch numbers restart in every run; the line is omitted when no commit has one. `Tickets: none (no Ticket: trailers found)` when there are no tickets.
+
+## Status for orchestrators
+
+`epic status` is the read-only view an orchestrator polls; `epic close` acts on the same assessment. `EpicStatus` fields:
+
+| Field | Meaning |
+|---|---|
+| `schemaVersion` | 1 |
+| `id`, `slug`, `branch`, `state` | from the record (`state` is `open` or `closed`) |
+| `into` | target branch assessed (`--into`, else the epic's `baseBranch`) |
+| `tip` | epic tip, null when the branch is missing |
+| `ahead`, `behind` | epic commits not on `into`, and `into` commits not on the epic |
+| `batchEpic` | the batch epic id, or null |
+| `runs` | batch runs of this epic in the state directory (`squash run` writes none) |
+| `latestRunId`, `latestRunExitCode` | the newest run and its exit code (null when unfinished) |
+| `landedTasks` | task ids landed across runs |
+| `openTasks` | tasks returned or unprocessed and not landed since: `task`, `state`, `branch`, `final`, `kind`, `runId`, `reason` |
+| `worktrees`, `worktreesUnmerged` | managed task worktrees on the epic, and how many of them block |
+| `batchRunning` | true when the per-epic lock is held by the acquire rule |
+| `upstream` | the target's upstream (last fetched), or null |
+| `blockers` | `code`, `detail`, `waivable` per [blocker](#close-blockers) |
+| `readyToClose` | true when `blockers` is empty |
+
+- `batch-running` and `batchRunning` cover both a `batch run` and a `squash run`: they share the per-epic lock.
+- An open task's `reason` is the return's reason, except for a land-stage return without files (for example the squash lander's `requireTicket` failure), where `batch` records only `land conflict with the epic tip`: then `reason` is git's one-lined output, which carries the real cause (`LandFailureWithoutFiles_ReportsGitOutputAsReason`; returns with files keep their reason, `ReturnWithFiles_KeepsItsReason`). For what a ticket-less task costs its batch-mates under `squash.requireTicket`, see [squash-tool.md](squash-tool.md#known-limitations).
+
+Run record, verbatim from the [dnx run](dnx-invocation-notes.md#worktree-and-epic-010) (row C29, after one `squash run` and one `batch` run had landed a task each and `worktree prune` had removed both worktrees):
+
+```text
+$ dnx.cmd Swarm.Epic@0.1.0 --add-source FEED -- status 42
+[stdout]
+{"schemaVersion":1,"epics":[{"schemaVersion":1,"id":"42","slug":"auth","branch":"epic/42-auth","state":"open","into":"main","tip":"b3a25e7fbaaef4d21975c96d827fe1a063ead533","ahead":2,"behind":0,"batchEpic":"42-auth","runs":1,"latestRunId":"20261005-122035-566-42-auth","latestRunExitCode":0,"landedTasks":["T2"],"openTasks":[],"worktrees":0,"worktreesUnmerged":0,"batchRunning":false,"upstream":null,"blockers":[],"readyToClose":true}]}
+[stderr]
+[exit 0, 13.0 s]
+```
+
+`runs` is 1 and `landedTasks` holds only the batch task `T2`: the `squash run` landing of `T1` left no run state, as stated above.
+
 ## Exit codes
 
-Values are those of `ExitCodes` (the same as batch, squash and testgate); source: `Program.cs` and `BaseOption`, tests in `WorktreeCliTests`.
+Values are those of `ExitCodes` (the same as batch, squash and testgate).
+
+### worktree exit codes
+
+Source: `Program.cs` and `BaseOption`, tests in `WorktreeCliTests`.
 
 **Output contract.** For `create` and `list`, stdout is exactly one JSON line on exit 0 and empty on exits 2 to 4. For `prune`, stdout is exactly one JSON line (the report) on exit 0 and also on exit 4 when items failed; on exits 2 and 3 it is empty. On every non-zero exit stderr carries one `error: <what>` line, optionally followed by `(<hint>)` (every `ToolException` is handled by `ToolErrors.Handle`, which writes only that line); on exit 4 from `prune` that line is `error: <n> prune item(s) failed (see items[].error in the report on stdout)`, where `<n>` is `failed`; it does not say what failed, so callers must read `done`, `branchDeleted` and `error` of each item in the stdout report (an item whose worktree was removed but whose branch was kept is among the failures). `create` warnings go to stderr as `warning: ...` lines. Never parse stderr for data.
 
@@ -163,9 +351,32 @@ Values are those of `ExitCodes` (the same as batch, squash and testgate); source
 
 Runs: `create 1 x` (neither option) exit 2, stderr `error: pass --epic <id> or --base <branch>`; `create 1 x --epic 42 --base main` exit 2, `error: pass only one of --epic or --base`; `create 2 x --epic 7` exit 3; `worktree nope` exit 2, `error: Unrecognized command or argument 'nope'. (see --help)`; stdout was empty in all of them.
 
+### epic exit codes
+
+Source: `src/Swarm.Epic.Cli/Program.cs`, `EpicOpener`, `EpicAssessor`, `EpicCloser`; tests in `EpicCliTests`.
+
+**Output contract.** `open` and `status` print one JSON line on exit 0 and nothing on exits 2 to 4. `close` prints its JSON result on exit 0 and exit 1 only; on exits 2, 3 and 4 stdout is empty. Every `close` warning is a `warning: ...` stderr line (see [close](#close)); every non-zero exit has exactly one `error: <what>` line, optionally followed by ` (<hint>)`. Never parse stderr for data.
+
+| Exit | Meaning |
+|---|---|
+| 0 | `open`, `status`; `close` with `result` `merged` or `dry-run` |
+| 1 | `close` did not merge and printed why: `result` `blocked` (stderr `error: epic '<id>' not closed: <first blocker detail> (<n> blocker(s); see blockers)`) or `conflict` (stderr `error: merging '<branch>' into '<into>' conflicts in <files> (merge '<into>' into the epic and resolve, then close again)`) |
+| 2 | Usage or config: parse error (unknown command, missing argument: one line, `EpicCliTests.ParseErrors_Exit2OneLine`), invalid id, slug, kind or branch name, branch prefix not allowed, invalid config, close worktree path over 200 characters |
+| 3 | Bad input: not inside a git worktree, unknown epic (`status <id>`, `close`), epic already closed (`close`), conflicting epic record or existing branch (`open`), missing base (`open`) or target branch (`status`, `close`) |
+| 4 | Environment: git failure; the epic lock taken by a run after the first check; the target moved, is being rebased, cannot be locked, already contains the epic, or is not at the merge commit after the update; a failed fast-forward (untracked or ignored files in the way); a failed merge or temporary worktree; the record could not be saved after the merge (the error says so and how to fix the record by hand) |
+| 5 | Not produced by `epic` |
+
+## Windows notes
+
+- **200-character guard.** Task worktree paths (`<worktreeRoot>/t-<ticket>`) and the close worktree (`<worktreeRoot>/close-<id>`) go through `StatePaths.Guard` (200 characters, exit 2 before anything is created), the same guard as the run-state paths of `batch`.
+- **MAX_PATH warning.** `worktree create` warns when the worktree path plus the longest tracked path exceeds 259 characters (see [create](#create)).
+- **Path normalisation.** Worktrees are identified by their branch's `swarm-*` metadata, not by path; where paths are compared (registration checks, the close worktree), `WorktreeList.SamePath` compares `Path.GetFullPath` results without a trailing separator, case-insensitively on Windows (so `C:/x` and `c:\X\` match; git prints forward slashes).
+- **Files held open.** A process holding a file in a task worktree makes its prune fail per item ([Prune rules](#prune-rules), held file); in the close worktree it leaves the directory behind with a warning in the close result, after the merge has already succeeded or the conflict has been reported.
+- **`git worktree prune` is repository-wide.** `worktree prune` and `epic close` never run it (they remove one worktree at a time); `worktree create` (when its own target path is a stale registration) and `batch`/`squash run` (when they prepare the integration worktree) do, and git then drops every unlocked registration whose directory is missing.
+
 ## Known limitations
 
-From the review ledger. These were not fixed in this plan.
+From the review ledger. These were not fixed in this plan. "Review ruling" numbers (C2, C3, C6) are the review ledger's rulings, not the plan's global constraints C1 to C11 that the sections above cite (for example the held-file note under C6 prune safety).
 
 - **Stale registration with a leftover directory stays forever.** A worktree that git calls prunable (for example its `.git` file is gone) while its directory still exists is kept with every `prune`, also with `--force`, because the directory may hold the only copy of work. It is reported `registration stale (gitdir missing) but directory exists; inspect it`. Remove or repair the directory yourself; the next `prune` then handles it as a missing-directory item.
 - **A held-file failure leaves a directory and a branch that later prunes never revisit** (Ruling C2: an orphan sweep is out of scope for this plan). After the failure above git has already deregistered the worktree, so `list` and `prune` (which enumerate registered worktrees only) never see it again, and the task branch and its `swarm-*` metadata stay. `batch` and `squash run` also run a repository-wide `git worktree prune`, which deregisters worktrees whose directory was deleted by hand in the same way. Delete the directory and the branch yourself (`git branch -D`); until a later plan adds a sweep for managed branches without a worktree, such branches accumulate.
@@ -174,4 +385,11 @@ From the review ledger. These were not fixed in this plan.
 - **`RunDirectories.Prune` keeps the newest 20 finished runs across all epics** (Ruling C3; a limitation of the `batch` run-state code, not of `worktree`). A busy epic can delete another epic's run folders and with them the evidence behind the `tasks-returned` close blocker and the `ledger` merge check. The fix is to prune per epic; it is not done.
 - **The exit-code mapping counts kept branches as failures.** A forced or merged removal whose branch could not be deleted is `done: true` with an `error`, counted in both `removed` and `failed`, and exits 4 (see [Prune rules](#prune-rules)).
 - **`--force` discards uncommitted files** of any managed, unlocked worktree whose directory is present, including one whose branch is checked out outside the managed root (a design question left open in the review; from the code, not run).
+- **Epic merge commits bypass commit hooks** (review ruling C6, for the human). `epic close` makes its merge with `--no-verify` and `--no-log`, as `batch`'s integration merges use `--no-verify`, so local `commit-msg` and `pre-merge-commit` policies never see it. The alternative is to keep the hooks and accept exit 4 when a hook rejects the merge; it was not chosen.
+- **A crashed local run blocks `epic close` until its lock expires.** `batch-running` follows the lock's acquire rule (a fresh heartbeat always counts) and is not waivable; wait until the lock is older than `expirySec`. The staleness check uses the file config's `expirySec` even if the run used a longer `--expiry-sec` override (from the code).
+- **`RunDirectories.Prune` across epics** (review ruling C3, above) also affects `epic`: the `tasks-returned` and `run-unfinished` blockers, `runs` and `landedTasks` see only the run folders that survive the newest-20 prune, so a busy epic can make another epic's returned tasks disappear from its status. The fix (per-epic pruning) is for the testgate + batch code.
+- **Point-in-time view.** `epic status` is a read; a run can start right after it. `epic close` therefore takes the lock and re-assesses itself.
+- **Rebase windows.** The rebase guard checks just before the target moves, so a rebase started in the instant between that check and the move is not caught; and `--delete-branch` treats an epic branch that another worktree is rebasing (detached) as checked out nowhere (from the code and the review, not run).
+- **No remote.** `active-behind-upstream` uses the last fetch; `epic close` never pushes the merge.
+- **Line endings can make `active-dirty` (and probably `dirty`) fire on a clean worktree** (code bug found by the dnx run, not fixed). The tools run git with `-c core.autocrlf=false` (`GitRunner`). With Git for Windows' default `core.autocrlf=true`, a tracked file that git itself checked out with CRLF (for example after `git checkout -- <file>`) differs from its LF blob under the tools' settings, so `git status --porcelain --untracked-files=no` in the target's worktree reports it modified whenever git re-reads the file, while the user's own `git status` is clean. `epic status` and `epic close` then report `active-dirty`, which `--force` cannot waive; in the run every later close was blocked ([run 1 output](dnx-invocation-notes.md#code-bug-found-line-endings-make-active-dirty-fire-on-a-clean-worktree)). Writing the committed bytes back cleared it; other workarounds were not tried. `worktree list`'s `dirty` flag (and so `prune`) uses the same runner and is probably affected too (not run). Files the tools check out are also written with LF despite `core.autocrlf=true`.
 - **Not run.** git older than 2.38 (the content check), non-Windows hosts, and the 259-character path warning end to end (a unit test pins it).

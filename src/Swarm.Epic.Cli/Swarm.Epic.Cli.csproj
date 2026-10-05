@@ -10,6 +10,9 @@
     <Description>NOT REAL placeholder package id (unclaimed on nuget.org; dependency-confusion risk). Open, report and close epic branches with --no-ff merges for agent swarms.</Description>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Swarm.Tools.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Swarm.Git\Swarm.Git.csproj" />
     <ProjectReference Include="..\Swarm.RunState\Swarm.RunState.csproj" />
     <ProjectReference Include="..\Swarm.Delivery\Swarm.Delivery.csproj" />

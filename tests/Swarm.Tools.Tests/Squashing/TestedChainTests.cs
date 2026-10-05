@@ -21,7 +21,7 @@ public class TestedChainTests
         using var repo = Repo();
         var t1 = repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
         var t2 = repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"), T("T2"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"), T("T2"));
         var links = TestedChain.Read(request);
         Assert.Equal(new[] { "T1", "T2" }, links.Select(l => l.Task.Id));
         Assert.Equal(request.EpicTipBefore, links[0].Before);
@@ -37,7 +37,7 @@ public class TestedChainTests
         using var repo = Repo();
         repo.Git("branch", "task/T1", "epic/E1");
         repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"), T("T2"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"), T("T2"));
         var links = TestedChain.Read(request);
         Assert.Equal((request.EpicTipBefore, request.EpicTipBefore, null), (links[0].Before, links[0].After, links[0].Source));
         Assert.Equal(repo.Sha("epic/E1^{tree}"), links[0].Tree);
@@ -50,7 +50,7 @@ public class TestedChainTests
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
         var t2 = repo.Branch("task/T2", "task/T1", ("two.txt", "2\n"));
-        var links = TestedChain.Read(Tested(repo, Worktree(repo), T("T1"), T("T2", null, "T1")));
+        var links = TestedChain.Read(Tested(repo, IntegrationFor(repo), T("T1"), T("T2", null, "T1")));
         Assert.Equal(links[0].After, links[1].Before);
         Assert.Equal(t2, links[1].Source);
     }
@@ -74,7 +74,7 @@ public class TestedChainTests
     {
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"));
         var moved = repo.Git("commit-tree", repo.Sha("epic/E1^{tree}"), "-p", request.EpicTipBefore, "-m", "human");
         Assert.Equal(ExitCodes.Environment, Assert.Throws<ToolException>(() => TestedChain.Read(request with { EpicTipBefore = moved })).ExitCode);
     }
@@ -85,7 +85,7 @@ public class TestedChainTests
         // Pins the coupling to Plan A: if IntegrationWorktree changes its merge message, this fails first.
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"));
         Assert.Equal(TestedChain.MergeSubject(request.Tasks[0]), repo.Git("log", "-1", "--format=%s", request.TestedCommit));
     }
 
@@ -105,7 +105,7 @@ public class TestedChainTests
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
         repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"));
         var e = Rejected(request with { Tasks = [L(T("T1")), L(T("T2"))] });
         Assert.Contains("task 'T2' has no merge in the tested chain and its branch is not contained in", e.Message);
     }
@@ -116,7 +116,7 @@ public class TestedChainTests
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
         repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
-        var request = Tested(repo, Worktree(repo), T("T2"));
+        var request = Tested(repo, IntegrationFor(repo), T("T2"));
         var e = Rejected(request with { Tasks = [L(T("T1")), L(T("T2"))] });
         Assert.Contains("task 'T1' has no merge in the tested chain", e.Message);
     }
@@ -126,7 +126,7 @@ public class TestedChainTests
     {
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"));
         Rejected(request with { Tasks = [L(T("T1")), L(T("T9"))] });
     }
 
@@ -136,7 +136,7 @@ public class TestedChainTests
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
         repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"), T("T2"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"), T("T2"));
         Rejected(request with { Tasks = [L(T("T2")), L(T("T1"))] });
     }
 
@@ -146,7 +146,7 @@ public class TestedChainTests
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
         repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"), T("T2"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"), T("T2"));
         var e = Rejected(request with { Tasks = [L(T("T1"))] });
         Assert.Contains($"commit {request.TestedCommit} is not the merge of the next task", e.Message);
     }

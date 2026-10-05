@@ -9,7 +9,7 @@ public static class SquashFixture
 {
     public static TaskSpec T(string id, string? branch = null, params string[] dependsOn) => new(id, branch ?? "task/" + id, dependsOn);
 
-    public static IntegrationWorktree Worktree(TempRepo repo)
+    public static IntegrationWorktree IntegrationFor(TempRepo repo)
     {
         var wt = new IntegrationWorktree(new GitRunner(repo.Root), Path.Combine(repo.WorktreeRoot, "int-E1"));
         wt.Ensure("epic/E1");

@@ -30,7 +30,7 @@ public class SquashLanderTests
         CommitAs(repo, "task/9933-parser", "Ada", "ada@example.invalid", "add parser", ("p.txt", "p\n"));
         CommitAs(repo, "task/9933-parser", "Ada", "ada@example.invalid", "fix parser", ("p.txt", "p2\n"));
         repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
-        var request = Tested(repo, Worktree(repo), T("T1", "task/9933-parser"), T("T2"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1", "task/9933-parser"), T("T2"));
         var result = Land(request).Result;
         Assert.Null(result.Failure);
         Assert.Empty(result.NotAttempted);
@@ -49,7 +49,7 @@ public class SquashLanderTests
         using var repo = Repo();
         var source = repo.Branch("task/9933-parser", "epic/E1", ("p.txt", "p\n"));
         repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
-        Land(Tested(repo, Worktree(repo), T("T1", "task/9933-parser"), T("T2")));
+        Land(Tested(repo, IntegrationFor(repo), T("T1", "task/9933-parser"), T("T2")));
         Assert.Equal("9933", Trailers(repo, "epic/E1~1", "Ticket"));
         Assert.Equal("T2", Trailers(repo, "epic/E1", "Ticket"));
         Assert.Equal("E1", Trailers(repo, "epic/E1~1", "Epic"));
@@ -66,7 +66,7 @@ public class SquashLanderTests
         repo.Git("branch", "task/T1", "epic/E1");
         CommitAs(repo, "task/T1", "Ada", "ada@example.invalid", "add a", ("a.txt", "a\n"));
         CommitAs(repo, "task/T1", "Bob", "bob@example.invalid", "add b", ("b.txt", "b\n"));
-        Land(Tested(repo, Worktree(repo), T("T1")));
+        Land(Tested(repo, IntegrationFor(repo), T("T1")));
         Assert.Equal("Ada <ada@example.invalid>", repo.Git("log", "-1", "--format=%an <%ae>", "epic/E1"));
         Assert.Equal("swarm-batch", repo.Git("log", "-1", "--format=%cn", "epic/E1"));
         Assert.Equal("Bob <bob@example.invalid>", Trailers(repo, "epic/E1", "Co-authored-by"));
@@ -79,7 +79,7 @@ public class SquashLanderTests
         repo.Git("branch", "task/T1", "epic/E1");
         CommitAs(repo, "task/T1", "Ada", "ada@example.invalid", "add a", ("a.txt", "a\n"));
         CommitAs(repo, "task/T1", "Bob", "bob@example.invalid", "add b", ("b.txt", "b\n"));
-        Land(Tested(repo, Worktree(repo), T("T1")), new SquashConfig { Author = SquashAuthorModes.Tool });
+        Land(Tested(repo, IntegrationFor(repo), T("T1")), new SquashConfig { Author = SquashAuthorModes.Tool });
         Assert.Equal("swarm-batch", repo.Git("log", "-1", "--format=%an", "epic/E1"));
         Assert.Equal("Ada <ada@example.invalid>,Bob <bob@example.invalid>", Trailers(repo, "epic/E1", "Co-authored-by"));
     }
@@ -90,7 +90,7 @@ public class SquashLanderTests
         using var repo = Repo();
         repo.Branch("task/9933-a", "epic/E1", ("a.txt", "a\n"));
         repo.Branch("task/9933-b", "task/9933-a", ("b.txt", "b\n"));
-        var request = Tested(repo, Worktree(repo), T("T1", "task/9933-a"), T("T2", "task/9933-b", "T1"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1", "task/9933-a"), T("T2", "task/9933-b", "T1"));
         var outcome = Land(request);
         Assert.Equal(1, Count(repo, $"{request.EpicTipBefore}..epic/E1"));
         Assert.Equal("T1,T2", Trailers(repo, "epic/E1", "Task"));
@@ -104,7 +104,7 @@ public class SquashLanderTests
         using var repo = Repo();
         repo.Branch("task/9933-a", "epic/E1", ("a.txt", "a\n"));
         repo.Branch("task/9934-b", "task/9933-a", ("b.txt", "b\n"));
-        var request = Tested(repo, Worktree(repo), T("T1", "task/9933-a"), T("T2", "task/9934-b", "T1"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1", "task/9933-a"), T("T2", "task/9934-b", "T1"));
         Land(request);
         Assert.Equal(2, Count(repo, $"{request.EpicTipBefore}..epic/E1"));
         Assert.Equal(("9933", "9934"), (Trailers(repo, "epic/E1~1", "Ticket"), Trailers(repo, "epic/E1", "Ticket")));
@@ -116,7 +116,7 @@ public class SquashLanderTests
         using var repo = Repo();
         repo.Git("branch", "task/T1", "epic/E1");
         repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"), T("T2"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"), T("T2"));
         var outcome = Land(request);
         Assert.Equal(1, Count(repo, $"{request.EpicTipBefore}..epic/E1"));
         Assert.Equal(request.EpicTipBefore, outcome.Result.Landed[0].Commit);
@@ -133,7 +133,7 @@ public class SquashLanderTests
         repo.Git("rm", "-q", "tmp.txt");
         repo.Git("commit", "-q", "-m", "remove tmp");
         repo.Git("checkout", "-q", "main");
-        var request = Tested(repo, Worktree(repo), T("T1"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"));
         var outcome = Land(request);
         Assert.Equal(request.EpicTipBefore, repo.Sha("epic/E1"));
         Assert.Equal(request.EpicTipBefore, outcome.Result.EpicTipAfter);
@@ -144,7 +144,7 @@ public class SquashLanderTests
     public void StackedOnLandedBranch_CreditsOnlyNewCommits()
     {
         using var repo = Repo();
-        var wt = Worktree(repo);
+        var wt = IntegrationFor(repo);
         repo.Git("branch", "task/T1", "epic/E1");
         CommitAs(repo, "task/T1", "Ada", "ada@example.invalid", "add a", ("a.txt", "a\n"));
         Land(Tested(repo, wt, T("T1")));
@@ -161,7 +161,7 @@ public class SquashLanderTests
     public void RebasedCopy_KeepsWorkerBranchTicket()
     {
         using var repo = Repo();
-        var wt = Worktree(repo);
+        var wt = IntegrationFor(repo);
         repo.Branch("task/9932-b", "epic/E1", ("b.txt", "b\n"));
         Assert.True(wt.RebaseCopy(T("T2", "task/9932-b"), repo.Sha("epic/E1"), "rebased/E1/T2").Clean);
         Land(Tested(repo, wt, T("T2", "rebased/E1/T2")));
@@ -173,7 +173,7 @@ public class SquashLanderTests
     {
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"));
         var moved = repo.Git("commit-tree", repo.Sha("epic/E1^{tree}"), "-p", request.EpicTipBefore, "-m", "human push");
         repo.Git("update-ref", "refs/heads/epic/E1", moved);
         var e = Assert.Throws<ToolException>(() => Land(request));
@@ -187,7 +187,7 @@ public class SquashLanderTests
     {
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"));
         repo.LockRef("epic/E1");
         var e = Assert.Throws<ToolException>(() => Land(request));
         Assert.Equal(ExitCodes.Environment, e.ExitCode);
@@ -205,7 +205,7 @@ public class SquashLanderTests
         using var repo = Repo();
         repo.Git("branch", "task/T1", "epic/E1");
         CommitAs(repo, "task/T1", "Zoë Ünal", "zoe@example.invalid", "Ünïcödé 日本語 change", ("u.txt", "u\n"));
-        Land(Tested(repo, Worktree(repo), T("T1")));
+        Land(Tested(repo, IntegrationFor(repo), T("T1")));
         var git = new GitRunner(repo.Root);
         Assert.Equal("Zoë Ünal", git.Run("log", "-1", "--format=%an", "epic/E1"));
         Assert.Equal("T1: Ünïcödé 日本語 change", git.Run("log", "-1", "--format=%s", "epic/E1"));

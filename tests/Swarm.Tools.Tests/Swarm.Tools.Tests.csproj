@@ -24,6 +24,9 @@
     <ProjectReference Include="..\..\src\Swarm.Batch.Cli\Swarm.Batch.Cli.csproj" />
     <ProjectReference Include="..\..\src\Swarm.Squashing\Swarm.Squashing.csproj" />
     <ProjectReference Include="..\..\src\Swarm.Squash.Cli\Swarm.Squash.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Delivery\Swarm.Delivery.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Worktree.Cli\Swarm.Worktree.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Epic.Cli\Swarm.Epic.Cli.csproj" />
     <ProjectReference Include="..\Swarm.FakeSuite\Swarm.FakeSuite.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

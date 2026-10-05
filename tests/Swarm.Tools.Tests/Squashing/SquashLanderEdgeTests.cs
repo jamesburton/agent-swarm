@@ -29,7 +29,7 @@ public class SquashLanderEdgeTests
         repo.Branch("task/9931-a", "epic/E1", ("a.txt", "a\n"));
         repo.Branch("task/T2", "epic/E1", ("b.txt", "b\n"));
         repo.Branch("task/9933-c", "epic/E1", ("c.txt", "c\n"));
-        var request = Tested(repo, Worktree(repo), T("T1", "task/9931-a"), T("T2"), T("T3", "task/9933-c"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1", "task/9931-a"), T("T2"), T("T3", "task/9933-c"));
         var outcome = Land(request, new SquashConfig { RequireTicket = true });
         var result = outcome.Result;
         Assert.Empty(result.Landed);
@@ -51,7 +51,7 @@ public class SquashLanderEdgeTests
         repo.Branch("task/9932-b", "epic/E1", ("b.txt", "b\n"));
         repo.Branch("task/T3", "task/9932-b", ("c.txt", "c\n"));
         repo.Branch("task/9934-d", "epic/E1", ("d.txt", "d\n"));
-        var request = Tested(repo, Worktree(repo), T("T1", "task/9931-a"), T("T2", "task/9932-b"), T("T3", "task/T3", "T2"), T("T4", "task/9934-d"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1", "task/9931-a"), T("T2", "task/9932-b"), T("T3", "task/T3", "T2"), T("T4", "task/9934-d"));
         var result = Land(request, new SquashConfig { RequireTicket = true }).Result;
         Assert.Empty(result.Landed);
         Assert.Equal("T3", result.Failure!.TaskId);
@@ -66,7 +66,7 @@ public class SquashLanderEdgeTests
         using var repo = Repo();
         repo.Branch("task/9931-a", "epic/E1", ("a.txt", "a\n"));
         repo.Branch("task/T2", "epic/E1", ("a.txt", "a\n"));
-        var request = Tested(repo, Worktree(repo), T("T1", "task/9931-a"), T("T2"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1", "task/9931-a"), T("T2"));
         var outcome = Land(request, new SquashConfig { RequireTicket = true });
         Assert.Null(outcome.Result.Failure);
         Assert.Empty(outcome.Result.NotAttempted);
@@ -81,7 +81,7 @@ public class SquashLanderEdgeTests
     {
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
-        Land(Tested(repo, Worktree(repo), T("T1")), new SquashConfig { RequireTicket = true }, "4242");
+        Land(Tested(repo, IntegrationFor(repo), T("T1")), new SquashConfig { RequireTicket = true }, "4242");
         Assert.Equal("4242", Trailers(repo, "epic/E1", "Ticket"));
         Assert.StartsWith("4242: ", repo.Git("log", "-1", "--format=%s", "epic/E1"));
     }
@@ -92,7 +92,7 @@ public class SquashLanderEdgeTests
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
         repo.Branch("task/T2", "epic/E1", ("two.txt", "2\n"));
-        var wt = Worktree(repo);
+        var wt = IntegrationFor(repo);
         var request = Tested(repo, wt, T("T1"), T("T2"));
         var before = repo.Git("for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/task/");
         Land(request);
@@ -126,7 +126,7 @@ public class SquashLanderEdgeTests
         repo.Branch("task/T1", "epic/E1", ("a.txt", "a\n"));
         repo.Branch("task/T2", "epic/E1", ("b.txt", "b\n"));
         repo.Branch("task/T3", "task/T1", ("c.txt", "c\n"));
-        var wt = Worktree(repo);
+        var wt = IntegrationFor(repo);
         var git = new GitRunner(repo.Root);
         var tip = git.RevParse("refs/heads/epic/E1");
 
@@ -148,7 +148,7 @@ public class SquashLanderEdgeTests
         repo.Branch("task/T1", "epic/E1", ("a.txt", "a\n"));
         repo.Branch("task/T2", "task/T1", ("b.txt", "b\n"));
         repo.Branch("task/T3", "epic/E1", ("c.txt", "c\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"), T("T2", "task/T2", "T1"), T("T3"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"), T("T2", "task/T2", "T1"), T("T3"));
         var result = Land(request).Result;
         Assert.Null(result.Failure);
         Assert.Equal(new[] { "T1", "T2", "T3" }, result.Landed.Select(l => l.TaskId));
@@ -161,7 +161,7 @@ public class SquashLanderEdgeTests
     {
         using var repo = Repo();
         repo.Branch("task/T1", "epic/E1", ("one.txt", "1\n"));
-        var request = Tested(repo, Worktree(repo), T("T1"));
+        var request = Tested(repo, IntegrationFor(repo), T("T1"));
 
         // A rebuilt tip whose tree is not the tested one must never reach the epic.
         var lander = new SquashLander(new SquashConfig(), "main")
@@ -178,7 +178,7 @@ public class SquashLanderEdgeTests
     public void ManyLandedSources_ChunkedExclusionStillCreditsOnlyNewCommits()
     {
         using var repo = Repo();
-        var wt = Worktree(repo);
+        var wt = IntegrationFor(repo);
         repo.Git("branch", "task/T1", "epic/E1");
         CommitAs(repo, "task/T1", "Ada", "ada@example.invalid", "add a", ("a.txt", "a\n"));
         Land(Tested(repo, wt, T("T1")));

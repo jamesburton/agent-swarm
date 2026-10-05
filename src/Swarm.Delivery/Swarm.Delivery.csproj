@@ -4,4 +4,7 @@
     <ProjectReference Include="..\Swarm.Git\Swarm.Git.csproj" />
     <ProjectReference Include="..\Swarm.RunState\Swarm.RunState.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Swarm.Tools.Tests" />
+  </ItemGroup>
 </Project>

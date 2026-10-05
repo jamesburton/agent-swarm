@@ -218,7 +218,7 @@ public class WorktreeManagerTests
         var release = new Thread(() =>
         {
             WaitForWorktree(m.PathFor("1"));
-            Thread.Sleep(600);
+            Thread.Sleep(330);
             File.Delete(gate);
         });
         release.Start();
@@ -267,7 +267,7 @@ public class WorktreeManagerTests
         using var repo = Repo();
         repo.Epic(name: "epic/bad");
 
-        // A tracked path that Windows git refuses to check out (':' is protected under core.protectNTFS).
+        // A tracked path that Windows git refuses to check out (':' is protected under core.protectNTFS); the tree is built by hand as <mode> <name> NUL <raw sha>.
         var blob = Path.Combine(repo.Sandbox, "blob.txt");
         File.WriteAllText(blob, "x\n");
         var sha = repo.Git("hash-object", "-w", blob);
@@ -284,6 +284,22 @@ public class WorktreeManagerTests
         Assert.Empty(repo.Git("branch", "--list", "task/*"));
         Assert.Single(WorktreeList.Read(m.Git));
         Assert.True(m.Create(new CreateRequest("1", "x", Epic, null)).Created);
+    }
+
+    [Fact]
+    public void Create_BranchAppearsBeforeAdd_ForeignBranchIsLeftUntouched()
+    {
+        using var repo = Repo();
+        var foreign = repo.Commit("elsewhere", ("other.txt", "y\n"));
+        var m = Manager(repo);
+
+        // Simulates another process creating the branch (at a different commit) after the existence check.
+        m.BeforeWorktreeAdd = b => repo.Git("branch", b, foreign);
+        var e = Assert.Throws<ToolException>(() => m.Create(new CreateRequest("1", "x", Epic, null)));
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.DoesNotContain("\n", e.Message, StringComparison.Ordinal);
+        Assert.Contains("left untouched", e.Message, StringComparison.Ordinal);
+        Assert.Equal(foreign, repo.Sha("task/1-x"));
     }
 
     [Fact]

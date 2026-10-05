@@ -14,7 +14,7 @@ Written on 2026-10-05 from the source and by running the built tool (Windows 11,
 ## Requirement and package status (NOT REAL)
 
 - Requires the .NET 10 SDK or later (`dnx` ships with it). git 2.31 or later is the plan's floor; squash-landed work is detected only with git 2.38 or later (see [Prune rules](#prune-rules)). Only git 2.54 was run (`unverified` on older versions).
-- **NOT REAL: nothing is published.** `Swarm.Worktree` (and `Swarm.Epic`) are placeholder package ids that nobody owns on nuget.org (`Swarm.Worktree` returned 404 on 2026-10-03; see [definition-format.md](definition-format.md)), so anyone could publish under them and `dnx` would download and run it (dependency confusion). Run them only with `--add-source <your feed>`. Before any publish: reserve an owned id prefix and add license, authors and readme metadata (`dotnet pack` currently prints `The package Swarm.Worktree.0.1.0 is missing a readme`; no metadata was added).
+- **NOT REAL: nothing is published.** `Swarm.Worktree` (and `Swarm.Epic`) are placeholder package ids that nobody owns on nuget.org (checked on 2026-10-05: `https://api.nuget.org/v3-flatcontainer/swarm.worktree/index.json` and `.../swarm.epic/index.json` both returned HTTP 404; see also [definition-format.md](definition-format.md)), so anyone could publish under them and `dnx` would download and run it (dependency confusion). Run them only with `--add-source <your feed>`. Before any publish: reserve an owned id prefix and add license, authors and readme metadata (`dotnet pack` currently prints `The package Swarm.Worktree.0.1.0 is missing a readme`; no metadata was added).
 - Version as built: `Swarm.Worktree` 0.1.0. dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)). dnx rules: no `--yes`, `dnx.cmd` in Git Bash, `--` before the tool's own arguments.
 
 ```bash
@@ -141,7 +141,7 @@ Run record (scratch repository, git 2.54, Windows 11): with a worktree whose bra
 
 ```text
 {"schemaVersion":1,"dryRun":false,"force":true,"items":[{... "branch":"task/7-other","action":"remove","reason":"forced: uncommitted or untracked changes","done":true,"branchDeleted":true,"error":null},{... "branch":"task/8-held","action":"remove","reason":"forced: uncommitted or untracked changes","done":false,"branchDeleted":false,"error":"remove failed; '<path>' left behind and no longer registered (a file may be in use), delete it manually; branch kept; git: error: failed to delete '<path>': Invalid argument"}],"removed":1,"kept":0,"failed":1}
-error: 1 worktree(s) could not be pruned (see items[].error; a process may hold files there)
+error: 1 prune item(s) failed (see items[].error in the report on stdout)
 ```
 
 `git worktree list` afterwards no longer showed `t-8`, while the directory `t-8` and the branch `task/8-held` were still there.
@@ -150,7 +150,7 @@ error: 1 worktree(s) could not be pruned (see items[].error; a process may hold 
 
 Values are those of `ExitCodes` (the same as batch, squash and testgate); source: `Program.cs` and `BaseOption`, tests in `WorktreeCliTests`.
 
-**Output contract.** For `create` and `list`, stdout is exactly one JSON line on exit 0 and empty on exits 2 to 4. For `prune`, stdout is exactly one JSON line (the report) on exit 0 and also on exit 4 when items failed; on exits 2 and 3 it is empty. On every non-zero exit stderr carries one `error: <what> (<hint>)` line (every `ToolException` is handled by `ToolErrors.Handle`, which writes only that line); on exit 4 from `prune` that line is the last line of stderr, after any progress lines. `create` warnings go to stderr as `warning: ...` lines. Never parse stderr for data.
+**Output contract.** For `create` and `list`, stdout is exactly one JSON line on exit 0 and empty on exits 2 to 4. For `prune`, stdout is exactly one JSON line (the report) on exit 0 and also on exit 4 when items failed; on exits 2 and 3 it is empty. On every non-zero exit stderr carries one `error: <what>` line, optionally followed by `(<hint>)` (every `ToolException` is handled by `ToolErrors.Handle`, which writes only that line); on exit 4 from `prune` that line is `error: <n> prune item(s) failed (see items[].error in the report on stdout)`, where `<n>` is `failed`; it does not say what failed, so callers must read `done`, `branchDeleted` and `error` of each item in the stdout report (an item whose worktree was removed but whose branch was kept is among the failures). `create` warnings go to stderr as `warning: ...` lines. Never parse stderr for data.
 
 | Exit | Meaning |
 |---|---|
@@ -158,7 +158,7 @@ Values are those of `ExitCodes` (the same as batch, squash and testgate); source
 | 1 | Not produced by `worktree` |
 | 2 | Usage or config: parse error (unknown command or option, missing argument: one `error: ... (see --help)` line), `--epic` and `--base` together, `create` with neither, invalid slug, kind, id or branch name, branch prefix not allowed, invalid config, path over 200 characters |
 | 3 | Bad input: not inside a git worktree (`OutsideRepo_Exits3`), unknown or closed epic (`create`), base branch not found, branch already exists without a worktree or is checked out for another base, locked or foreign worktree at the target path |
-| 4 | Environment: git failure, a non-empty directory at the target path, `create` rolled back, or `prune` with at least one item whose `error` is set, as described under [Prune rules](#prune-rules) (the stderr line is `error: <n> worktree(s) could not be pruned (see items[].error; a process may hold files there)`, where `<n>` is `failed`) |
+| 4 | Environment: git failure, a non-empty directory at the target path, `create` rolled back, or `prune` with at least one item whose `error` is set, as described under [Prune rules](#prune-rules) (the stderr line is `error: <n> prune item(s) failed (see items[].error in the report on stdout)`, where `<n>` is `failed`) |
 | 5 | Not produced by `worktree` |
 
 Runs: `create 1 x` (neither option) exit 2, stderr `error: pass --epic <id> or --base <branch>`; `create 1 x --epic 42 --base main` exit 2, `error: pass only one of --epic or --base`; `create 2 x --epic 7` exit 3; `worktree nope` exit 2, `error: Unrecognized command or argument 'nope'. (see --help)`; stdout was empty in all of them.

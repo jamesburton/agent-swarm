@@ -104,7 +104,7 @@ public class WorktreeCliTests
         var (code, output, err) = Run(repo, "prune", "--force", "--config", config);
         Assert.Equal(ExitCodes.Environment, code);
         Assert.Equal(1, SingleJsonLine(output).GetProperty("failed").GetInt32());
-        Assert.StartsWith("error: 1 worktree(s) could not be pruned", err.Split('\n').Last(l => l.Length > 0));
+        Assert.StartsWith("error: 1 prune item(s) failed (see items[].error in the report on stdout)", err.Split('\n').Last(l => l.Length > 0));
     }
 
     [Theory]

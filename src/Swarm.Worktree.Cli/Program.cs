@@ -75,7 +75,7 @@ public static class Program
                 return ExitCodes.Ok;
             }
 
-            stderr.WriteLine(ToolException.Format($"{report.Failed} worktree(s) could not be pruned", "see items[].error; a process may hold files there"));
+            stderr.WriteLine(ToolException.Format($"{report.Failed} prune item(s) failed", "see items[].error in the report on stdout"));
             return ExitCodes.Environment;
         });
 

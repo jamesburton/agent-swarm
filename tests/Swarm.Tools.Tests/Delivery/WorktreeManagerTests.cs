@@ -231,6 +231,87 @@ public class WorktreeManagerTests
         Assert.Equal((true, null), (e.Dirty, e.MergedVia));
     }
 
+    [Fact]
+    public void List_CleanCrlfCheckoutUnderRepoAutoCrlf_IsNotDirty()
+    {
+        using var repo = Repo();
+        var m = Manager(repo);
+        var r = m.Create(new CreateRequest("1", "x", Epic, null));
+        LineEndings.UseAutoCrlf(repo);
+        LineEndings.CleanCrlfCheckout(r.Path, "README.md");
+        Assert.True(LineEndings.ModifiedUnderAutoCrlfOff(r.Path, "README.md"));
+        LineEndings.Touch(Path.Combine(r.Path, "README.md"));
+
+        var e = Assert.Single(m.List());
+
+        Assert.Null(e.Error);
+        Assert.False(e.Dirty);
+    }
+
+    [Fact]
+    public void Create_StaleRegistrationAtItsPath_DeregistersOnlyThatPath()
+    {
+        using var repo = Repo();
+        var m = Manager(repo);
+        var old = m.Create(new CreateRequest("1", "x", Epic, null));
+
+        // The user's own worktree with a stale registration whose directory still holds work: a repository-wide
+        // `git worktree prune` would deregister it, after which nothing lists it any more.
+        var mine = Path.Combine(repo.Sandbox, "mine");
+        repo.Git("worktree", "add", "-q", "-b", "mine", mine);
+        File.WriteAllText(Path.Combine(mine, "work.txt"), "only copy\n");
+        File.Delete(Path.Combine(mine, ".git"));
+
+        // Our own path: registered, directory emptied (git lists it prunable; `worktree remove` refuses an existing directory).
+        FileTree.DeleteTree(old.Path);
+        Directory.CreateDirectory(old.Path);
+
+        // Same ticket, other slug: same path t-1, new branch.
+        var r = m.Create(new CreateRequest("1", "y", Epic, null));
+
+        Assert.True(r.Created);
+        Assert.Equal("task/1-y", r.Branch);
+        Assert.Equal("task/1-y", TempRepo.RunGit(r.Path, "rev-parse", "--abbrev-ref", "HEAD"));
+        var still = Assert.Single(WorktreeList.Read(m.Git), w => WorktreeList.SamePath(w.Path, mine));
+        Assert.True(still.Prunable);
+        Assert.True(File.Exists(Path.Combine(mine, "work.txt")));
+    }
+
+    [Fact]
+    public void Create_StaleRegistrationWithFilesAtItsPath_IsRefusedBeforeDeregistering()
+    {
+        using var repo = Repo();
+        var m = Manager(repo);
+        var old = m.Create(new CreateRequest("1", "x", Epic, null));
+        File.WriteAllText(Path.Combine(old.Path, "work.txt"), "only copy\n");
+        File.Delete(Path.Combine(old.Path, ".git"));
+
+        var e = Assert.Throws<ToolException>(() => m.Create(new CreateRequest("1", "y", Epic, null)));
+
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("exists and is not empty", e.Message);
+        Assert.True(Assert.Single(WorktreeList.Read(m.Git), w => WorktreeList.SamePath(w.Path, old.Path)).Prunable);
+        Assert.True(File.Exists(Path.Combine(old.Path, "work.txt")));
+        Assert.Empty(repo.Git("branch", "--list", "task/1-y"));
+    }
+
+    [Fact]
+    public void Create_RepeatForAWorktreeWhoseDirectoryIsGone_IsBadInputWithAHint()
+    {
+        using var repo = Repo();
+        var m = Manager(repo);
+        var r = m.Create(new CreateRequest("1", "x", Epic, null));
+        FileTree.DeleteTree(r.Path);
+
+        var e = Assert.Throws<ToolException>(() => m.Create(new CreateRequest("1", "x", Epic, null)));
+
+        Assert.Equal(ExitCodes.BadInput, e.ExitCode);
+        Assert.Contains("stale registration (its directory is missing)", e.Message);
+        Assert.Contains("git worktree remove", e.Hint);
+        Assert.Contains("git worktree add \"", e.Hint);
+        Assert.EndsWith($"\" {r.Branch}", e.Hint);
+    }
+
     /// <summary>Replaces a worktree's .git file with garbage: git still lists it (not prunable) but `git status` there fails.</summary>
     /// <param name="worktree">Worktree directory.</param>
     internal static void CorruptGitFile(string worktree)

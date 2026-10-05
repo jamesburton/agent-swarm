@@ -1,3 +1,4 @@
+using System.Text;
 using Swarm.Git;
 using Swarm.RunState;
 
@@ -75,6 +76,9 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
     /// <summary>Gets or sets a test seam invoked with the merge commit while the temporary worktree still exists, before the active branch moves.</summary>
     internal Action<string>? AfterMerge { get; set; }
 
+    /// <summary>Gets or sets a test seam invoked with the merge commit right after the active branch moved, before it is verified.</summary>
+    internal Action<string>? AfterMove { get; set; }
+
     /// <summary>Closes an epic.</summary>
     /// <param name="id">Epic id.</param>
     /// <param name="options">Options.</param>
@@ -139,8 +143,21 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
         {
             git.Run("worktree", "add", "-q", "--detach", path, intoSha);
             var wt = git.At(path);
+
+            // The message goes in a file (-F), not on the command line (-m), which Windows caps at about 32 K characters. The
+            // file lives in the temporary worktree's own git dir, so removing the worktree removes it too.
+            var messageFile = Path.GetFullPath(Path.Combine(path, wt.Run("rev-parse", "--git-path", "SWARM_CLOSE_MSG")));
+            try
+            {
+                File.WriteAllText(messageFile, plan.Message.ReplaceLineEndings("\n") + "\n", new UTF8Encoding(false));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                throw new ToolException(ExitCodes.Environment, $"could not write the merge message to '{messageFile}': {TextLines.OneLine(e.Message)}; nothing merged");
+            }
+
             // Tool-made merge commit: no user hooks (--no-verify), no merge.log shortlog (--no-log); see the class remarks.
-            var r = wt.Try("merge", "--no-ff", "--no-edit", "--no-verify", "--no-log", "-m", plan.Message, tip);
+            var r = wt.Try("merge", "--no-ff", "--no-edit", "--no-verify", "--no-log", "-F", messageFile, tip);
             if (r.ExitCode != 0)
             {
                 var files = wt.Lines("diff", "--name-only", "--diff-filter=U");
@@ -173,6 +190,7 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
         try
         {
             MoveActive(git, into, intoSha, merge, id);
+            AfterMove?.Invoke(merge);
 
             // Verify before recording: the record must never say closed unless the target really points at the merge.
             if (!StillAt(git, into, merge))
@@ -253,7 +271,8 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
 
         if (WorktreeList.CheckedOut(git, into) is { Prunable: false } active && Directory.Exists(active.Path))
         {
-            var at = git.At(active.Path);
+            // The user's own checkout: judge and write its files with the repository's line-ending settings, as the user's git does.
+            var at = git.WithRepoLineEndings().At(active.Path);
 
             // Same branch and same commit immediately before the fast-forward (the worktree may have switched branch since
             // it was listed); the caller verifies the branch afterwards.
@@ -270,7 +289,7 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
                 throw StillAt(git, into, intoSha)
                     ? new ToolException(
                         ExitCodes.Environment,
-                        $"could not fast-forward '{into}' in '{active.Path}': {TextLines.OneLine(ff.StdErr.Length > 0 ? ff.StdErr : ff.StdOut)}; nothing merged",
+                        $"could not fast-forward '{into}' in '{active.Path}': {TextLines.OneLine(ff.StdErr.Length > 0 ? ff.StdErr : ff.StdOut)}; nothing merged{PartialUpdate(at, active.Path, intoSha, merge)}",
                         "move untracked or ignored files that the merge would overwrite; " + StaleLockHint)
                     : Moved(into);
             }
@@ -290,6 +309,75 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
             ? new ToolException(ExitCodes.Environment, $"could not move '{into}': {TextLines.OneLine(r.StdErr)}; nothing merged", StaleLockHint)
             : Moved(into);
     }
+
+    // A fast-forward can fail half-way (Windows: a file held open cannot be replaced) after it rewrote other files: the branch
+    // and index stay at intoSha, but the working tree is partly the merge's. Returns "" when the tree is clean, else a message
+    // tail with the commands that restore it. Files the merge adds and status lists as untracked were created by this
+    // fast-forward: git checks every path before writing any, so a pre-existing untracked file would have stopped it first.
+    static string PartialUpdate(GitRunner at, string path, string intoSha, string merge)
+    {
+        const int MaxListed = 20;
+        var status = at.Try("status", "--porcelain", "-z", "--untracked-files=all");
+        if (status.ExitCode != 0)
+        {
+            return $"; the working tree in '{path}' may be partly updated (git status failed there), check it before re-running";
+        }
+
+        var changed = new List<string>();
+        var untracked = new List<string>();
+        // ProcessRunner collects stdout by lines, so the NUL-separated output ends with a line break.
+        var fields = status.StdOut.Split('\0').Select(s => s.Trim('\r', '\n')).Where(s => s.Length > 0).ToArray();
+        for (var i = 0; i < fields.Length; i++)
+        {
+            if (fields[i].Length < 4)
+            {
+                continue;
+            }
+
+            var (code, file) = (fields[i][..2], fields[i][3..]);
+            (code == "??" ? untracked : changed).Add(file);
+            if (code[0] is 'R' or 'C')
+            {
+                i++; // -z puts a rename's or copy's source path in the next field.
+            }
+        }
+
+        if (changed.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        // Only files the fast-forward itself wrote are listed: touched by the merge and now holding the merge's content. A
+        // change of the user's own (made after the assessment) differs from the merge and is never offered for checkout.
+        var touched = at.Try("diff", "--name-only", "--no-renames", intoSha, merge);
+        var notMerged = at.Try("diff", "--name-only", "--no-renames", merge);
+        var added = at.Try("diff", "--name-only", "--no-renames", "--diff-filter=A", intoSha, merge);
+        if (touched.ExitCode != 0 || notMerged.ExitCode != 0 || added.ExitCode != 0)
+        {
+            return $"; the working tree in '{path}' may be partly updated (git diff failed there), check it before re-running";
+        }
+
+        var touchedSet = Names(touched);
+        var notMergedSet = Names(notMerged);
+        var rewritten = changed.Where(f => touchedSet.Contains(f) && !notMergedSet.Contains(f)).ToList();
+        if (rewritten.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var addedSet = Names(added);
+        var created = untracked.Where(addedSet.Contains).ToList();
+        static string Files(List<string> files) =>
+            string.Join(' ', files.Take(MaxListed).Select(Quote)) + (files.Count > MaxListed ? $" (and {files.Count - MaxListed} more, see git status there)" : string.Empty);
+
+        return $"; but the fast-forward already rewrote {rewritten.Count} tracked file(s) in '{path}' before it stopped; restore them with: git -C {Quote(path)} checkout -- {Files(rewritten)}"
+            + (created.Count > 0 ? $"; and delete the file(s) it created: {Files(created)}" : string.Empty);
+    }
+
+    static HashSet<string> Names(ProcessResult r) => TextLines.Split(r.StdOut).ToHashSet(StringComparer.Ordinal);
+
+    // Quotes a path for the copy-paste commands in an error line when it holds anything but plain path characters.
+    static string Quote(string s) => s.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-' or '/' or '\\' or ':') ? s : $"\"{s}\"";
 
     // The worktree whose in-progress rebase (merge or apply backend) names refs/heads/<branch>, or null. Each worktree has
     // its own git dir, so the state files are found through `rev-parse --git-path` run there.
@@ -320,7 +408,7 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
         new(ExitCodes.Environment, $"'{into}' moved during close; nothing merged", "re-run epic close");
 
     // After the merge: report an epic branch that moved meanwhile (its new commits are not merged) and delete the branch
-    // when asked, only while it still points at the merged tip and is checked out nowhere.
+    // when asked, only while it still points at the merged tip, is checked out nowhere and is being rebased nowhere.
     static bool Finish(GitRunner git, string branch, string into, string tip, bool delete, List<string> warnings)
     {
         if (!StillAt(git, branch, tip))
@@ -337,6 +425,14 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
         if (WorktreeList.CheckedOut(git, branch) is { } w)
         {
             warnings.Add($"'{branch}' was kept: it is checked out at '{w.Path}'");
+            return false;
+        }
+
+        // A worktree rebasing the epic branch is detached, so it reads as checked out nowhere; the branch is still in use
+        // there (the rebase writes it back on --continue or --abort), so it is kept.
+        if (RebasingIn(git, branch) is { } rebasing)
+        {
+            warnings.Add($"'{branch}' was kept: it is being rebased in '{rebasing}'");
             return false;
         }
 

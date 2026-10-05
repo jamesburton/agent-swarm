@@ -54,6 +54,12 @@ public sealed class Pruner(WorktreeManager manager)
     /// <summary>Gets or sets a test seam invoked with each entry just before its action is carried out.</summary>
     internal Action<WorktreeEntry>? BeforeApply { get; set; }
 
+    /// <summary>Gets or sets a test seam invoked with each entry after its worktree was removed, just before its branch is deleted.</summary>
+    internal Action<WorktreeEntry>? BeforeBranchDelete { get; set; }
+
+    /// <summary>Gets or sets a test seam invoked with the path after a failed remove, just before its registration is re-read.</summary>
+    internal Action<string>? BeforeRegistrationCheck { get; set; }
+
     /// <summary>Decides what to do with one managed worktree.</summary>
     /// <param name="entry">The worktree.</param>
     /// <param name="force">Whether unmerged, dirty and empty work may go.</param>
@@ -121,7 +127,7 @@ public sealed class Pruner(WorktreeManager manager)
                 {
                     item = Apply(e, d, force, item);
                 }
-                catch (Exception ex) when (ex is ToolException or IOException or UnauthorizedAccessException or Win32Exception)
+                catch (Exception ex) when (Recoverable(ex))
                 {
                     // One failure never stops the rest or loses the report of items already processed.
                     item = item with { Error = TextLines.OneLine(ex.Message) };
@@ -141,10 +147,11 @@ public sealed class Pruner(WorktreeManager manager)
         BeforeApply?.Invoke(e);
 
         // `worktree remove` (not the repo-wide `worktree prune`) also deregisters a missing directory, and touches only this worktree.
-        // A single --force discards dirty files but still refuses a locked worktree; without it git re-checks for changes made since listing.
+        // A single --force discards dirty files but still refuses a locked worktree; without it git re-checks for changes made since listing,
+        // judged with the repository's own line-ending settings (as the dirty flag is), so a clean CRLF checkout is not refused.
         var r = force && d.Action == PruneActions.Remove
             ? manager.Git.Try("worktree", "remove", "--force", e.Path)
-            : manager.Git.Try("worktree", "remove", e.Path);
+            : manager.Git.WithRepoLineEndings().Try("worktree", "remove", e.Path);
         if (r.ExitCode != 0)
         {
             // The branch is kept whenever the worktree could not be removed.
@@ -163,9 +170,10 @@ public sealed class Pruner(WorktreeManager manager)
         bool? registered;
         try
         {
+            BeforeRegistrationCheck?.Invoke(path);
             registered = WorktreeList.Read(manager.Git).Any(w => WorktreeList.SamePath(w.Path, path));
         }
-        catch (ToolException)
+        catch (Exception ex) when (Recoverable(ex))
         {
             registered = null;
         }
@@ -203,6 +211,7 @@ public sealed class Pruner(WorktreeManager manager)
     {
         try
         {
+            BeforeBranchDelete?.Invoke(e);
             if (e.Head is null)
             {
                 return item with { Error = "branch kept: git did not report its tip" };
@@ -226,9 +235,13 @@ public sealed class Pruner(WorktreeManager manager)
                 ? item
                 : item with { Error = $"branch deleted but its config (branch.{e.Branch}.*) was not removed: " + TextLines.OneLine(c.StdErr) };
         }
-        catch (ToolException ex)
+        catch (Exception ex) when (Recoverable(ex))
         {
+            // The worktree is already gone (Done stays true); only the branch step failed.
             return item with { Error = "branch delete failed: " + TextLines.OneLine(ex.Message) };
         }
     }
+
+    // Failures confined to one item (git, file system, a git process that could not start); anything else is a bug and propagates.
+    static bool Recoverable(Exception ex) => ex is ToolException or IOException or UnauthorizedAccessException or Win32Exception;
 }

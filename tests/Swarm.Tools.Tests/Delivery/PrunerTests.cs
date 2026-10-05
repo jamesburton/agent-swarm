@@ -189,6 +189,67 @@ public class PrunerTests
     }
 
     [Fact]
+    public void MergedCleanCrlfCheckoutUnderRepoAutoCrlf_IsRemovedWithoutForce()
+    {
+        var (repo, m) = Setup();
+        using var _ = repo;
+        var r = Work(m, "1");
+        SquashOntoEpic(repo, "1");
+        LineEndings.UseAutoCrlf(repo);
+        var file = Path.Combine(r.Path, "f1.txt");
+        LineEndings.CleanCrlfCheckout(r.Path, "f1.txt");
+        Assert.True(LineEndings.ModifiedUnderAutoCrlfOff(r.Path, "f1.txt"));
+        LineEndings.Touch(file);
+
+        // Touched again before the remove: the listing's own status refreshed the index, and git's non-forced remove re-checks the files.
+        var report = new Pruner(m) { BeforeApply = _ => LineEndings.Touch(file) }.Prune(null, false, false);
+
+        var item = Assert.Single(report.Items);
+        Assert.Equal((PruneActions.Remove, true, true, null), (item.Action, item.Done, item.BranchDeleted, item.Error));
+        Assert.False(Directory.Exists(r.Path));
+    }
+
+    [Fact]
+    public void NonGitExceptionInTheBranchStep_KeepsTheItemDone()
+    {
+        var (repo, m) = Setup();
+        using var _ = repo;
+        var r = Work(m, "1");
+        SquashOntoEpic(repo, "1");
+
+        var report = new Pruner(m) { BeforeBranchDelete = _ => throw new IOException("disk went away") }.Prune(null, false, false);
+
+        var item = Assert.Single(report.Items);
+        Assert.Equal((true, false), (item.Done, item.BranchDeleted));
+        Assert.Equal("branch delete failed: disk went away", item.Error);
+        Assert.Equal((1, 1), (report.Removed, report.Failed));
+        Assert.False(Directory.Exists(r.Path));
+        Assert.NotEmpty(repo.Git("branch", "--list", r.Branch));
+    }
+
+    [Fact]
+    public void NonGitExceptionWhileRereadingTheRegistration_StillReportsWhatIsLeft()
+    {
+        var (repo, m) = Setup();
+        using var _ = repo;
+        Work(m, "1");
+        SquashOntoEpic(repo, "1");
+        string? work = null;
+        var pruner = new Pruner(m)
+        {
+            BeforeApply = e => work ??= StaleGitdirWithWork(e.Path), // git refuses the remove ("validation failed")
+            BeforeRegistrationCheck = _ => throw new System.ComponentModel.Win32Exception(5, "access denied"),
+        };
+
+        var item = Assert.Single(pruner.Prune(null, false, false).Items);
+
+        Assert.Equal((false, false), (item.Done, item.BranchDeleted));
+        Assert.Contains("still exists and its registration is unknown (check git worktree list); inspect it", item.Error, StringComparison.Ordinal);
+        Assert.Contains("branch kept", item.Error, StringComparison.Ordinal);
+        Assert.True(File.Exists(work));
+    }
+
+    [Fact]
     public void MergedViaContent_RemovedAndBranchDeleted()
     {
         var (repo, m) = Setup();

@@ -306,6 +306,41 @@ public class EpicAssessorTests
     }
 
     [Fact]
+    public void CleanCrlfCheckoutUnderRepoAutoCrlf_IsNotActiveDirty()
+    {
+        // The dnx run's bug: with the user's core.autocrlf=true, a file git checked out with CRLF is clean for the user, but the
+        // tools' fixed core.autocrlf=false read it as modified and blocked every close with the unwaivable active-dirty.
+        using var f = new Fixture();
+        LineEndings.UseAutoCrlf(f.Repo);
+        LineEndings.CleanCrlfCheckout(f.Repo.Root, "README.md");
+        Assert.True(LineEndings.ModifiedUnderAutoCrlfOff(f.Repo.Root, "README.md"));
+        LineEndings.Touch(Path.Combine(f.Repo.Root, "README.md"));
+
+        var s = f.Assess();
+
+        Assert.DoesNotContain(BlockerCodes.ActiveDirty, Codes(s));
+        Assert.True(s.ReadyToClose);
+    }
+
+    [Fact]
+    public void CleanMergedNonEmptyTaskWorktree_DoesNotBlock()
+    {
+        using var f = new Fixture();
+        var wt = new WorktreeManager(f.Paths, f.Config).Create(new CreateRequest("9934", "more", Epic, null));
+        File.WriteAllText(Path.Combine(wt.Path, "more.txt"), "more\n");
+        TempRepo.RunGit(wt.Path, "add", "-A");
+        TempRepo.RunGit(wt.Path, "commit", "-q", "-m", "landed");
+        f.Repo.Git("branch", "-f", Epic, wt.Branch); // the epic now contains the task's work (ancestor-merged)
+
+        var s = f.Assess();
+
+        var listed = Assert.Single(new WorktreeManager(f.Paths, f.Config).List(Epic));
+        Assert.Equal((false, false, MergeVia.Ancestor), (listed.Dirty, listed.Empty, listed.MergedVia));
+        Assert.Equal((1, 0), (s.Worktrees, s.WorktreesUnmerged));
+        Assert.True(s.ReadyToClose);
+    }
+
+    [Fact]
     public void UntrackedOnly_DoesNotBlock()
     {
         using var f = new Fixture();

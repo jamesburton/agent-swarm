@@ -40,6 +40,28 @@ public class EpicOpenerTests
     }
 
     [Fact]
+    public void RecordCannotBeSaved_BranchIsRemovedAgainSoARetrySucceeds()
+    {
+        using var repo = TempRepo.Create();
+
+        // A file where the records directory should be: the branch is created, then saving the record fails.
+        Directory.CreateDirectory(repo.StateDir);
+        var blocker = Path.Combine(repo.StateDir, "epics");
+        File.WriteAllText(blocker, "not a directory");
+
+        var e = Assert.Throws<ToolException>(() => Opener(repo).Open("42", "auth", null, null));
+
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("could not save the epic record", e.Message);
+        Assert.Contains("branch 'epic/42-auth' removed again", e.Message);
+        Assert.DoesNotContain('\n', e.Message);
+        Assert.Empty(repo.Git("branch", "--list", "epic/42-auth"));
+
+        File.Delete(blocker);
+        Assert.True(Opener(repo).Open("42", "auth", null, null).Created);
+    }
+
+    [Fact]
     public void SameIdOtherSlug_IsBadInput()
     {
         using var repo = TempRepo.Create();

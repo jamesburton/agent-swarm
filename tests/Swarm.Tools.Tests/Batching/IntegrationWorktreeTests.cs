@@ -1,4 +1,5 @@
 using Swarm.Batching;
+using Swarm.Delivery;
 using Swarm.Git;
 using Swarm.Tools.Tests.Support;
 using static Swarm.Tools.Tests.Support.Tasks;
@@ -139,6 +140,44 @@ public class IntegrationWorktreeTests
         File.WriteAllText(Path.Combine(path, "mine.txt"), "x");
         var e = Assert.Throws<ToolException>(() => new IntegrationWorktree(new GitRunner(repo.Root), path).Ensure("epic/E1"));
         Assert.Equal(ExitCodes.Environment, e.ExitCode);
+    }
+
+    [Fact]
+    public void Ensure_DeletedIntegrationDirectory_IsRecreatedAndOtherStaleRegistrationsAreLeftAlone()
+    {
+        var (repo, git, wt) = Setup();
+        using var _ = repo;
+
+        // The user's own worktree whose .git file is gone but whose directory still holds work: git lists it prunable, so a
+        // repository-wide `git worktree prune` would deregister it and nothing would list it again.
+        var mine = Path.Combine(repo.Sandbox, "mine");
+        repo.Git("worktree", "add", "-q", "-b", "mine", mine);
+        File.WriteAllText(Path.Combine(mine, "work.txt"), "only copy\n");
+        File.Delete(Path.Combine(mine, ".git"));
+        FileTree.DeleteTree(wt.WorktreePath);
+
+        new IntegrationWorktree(git, wt.WorktreePath).Ensure("epic/E1");
+
+        Assert.Equal(git.RevParse("refs/heads/epic/E1"), wt.Git.RevParse("HEAD"));
+        Assert.Empty(Status(wt));
+        Assert.True(Assert.Single(WorktreeList.Read(git), w => WorktreeList.SamePath(w.Path, mine)).Prunable);
+        Assert.True(File.Exists(Path.Combine(mine, "work.txt")));
+    }
+
+    [Fact]
+    public void Ensure_StaleIntegrationRegistrationWithFiles_IsEnvironmentErrorAndKeepsTheFiles()
+    {
+        var (repo, git, wt) = Setup();
+        using var _ = repo;
+        File.WriteAllText(Path.Combine(wt.WorktreePath, "left.txt"), "x");
+        File.Delete(Path.Combine(wt.WorktreePath, ".git"));
+
+        var e = Assert.Throws<ToolException>(() => new IntegrationWorktree(git, wt.WorktreePath).Ensure("epic/E1"));
+
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains(".git file is missing", e.Message);
+        Assert.True(File.Exists(Path.Combine(wt.WorktreePath, "left.txt")));
+        Assert.Contains(WorktreeList.Read(git), w => WorktreeList.SamePath(w.Path, wt.WorktreePath));
     }
 
     [Fact]

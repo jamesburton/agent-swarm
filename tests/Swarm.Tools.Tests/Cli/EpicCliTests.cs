@@ -126,6 +126,25 @@ public class EpicCliTests
     }
 
     [Fact]
+    public void Status_StrayRecordFile_IsAWarningAndAnUnreadableEntry_NotAFailure()
+    {
+        var (repo, config) = Opened();
+        using var _ = repo;
+        var stray = Path.Combine(repo.StateDir, "epics", "notes copy.json");
+        File.WriteAllText(stray, "{}");
+
+        var (code, output, err) = Run(repo, "status", "--config", config);
+
+        Assert.Equal(ExitCodes.Ok, code);
+        var json = SingleJsonLine(output);
+        Assert.Equal("42", Assert.Single(json.GetProperty("epics").EnumerateArray()).GetProperty("id").GetString());
+        var unreadable = Assert.Single(json.GetProperty("unreadable").EnumerateArray());
+        Assert.Equal(stray, unreadable.GetProperty("path").GetString());
+        var line = Assert.Single(Lines(err));
+        Assert.StartsWith($"warning: epic file '{stray}' skipped: ", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Close_Merged_Exit0()
     {
         var (repo, config) = Opened();

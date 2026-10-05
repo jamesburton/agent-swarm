@@ -275,6 +275,146 @@ public class EpicCloserTests
     }
 
     [Fact]
+    public void CleanCrlfCheckoutUnderRepoAutoCrlf_FastForwardsAndWritesTheUsersLineEndings()
+    {
+        using var f = new Fixture();
+        f.OnEpic("9935: readme\n\nTicket: 9935", ("README.md", "readme\nmore\n"));
+        LineEndings.UseAutoCrlf(f.Repo);
+        var readme = Path.Combine(f.Repo.Root, "README.md");
+        LineEndings.CleanCrlfCheckout(f.Repo.Root, "README.md");
+        Assert.True(LineEndings.ModifiedUnderAutoCrlfOff(f.Repo.Root, "README.md"));
+        LineEndings.Touch(readme);
+
+        // Touched again before the fast-forward: the assessment's own status refreshed the index, and the fast-forward
+        // re-checks the file it is about to replace.
+        var closer = f.Closer();
+        closer.AfterMerge = _ => LineEndings.Touch(readme);
+        var r = closer.Close("42", new CloseOptions());
+
+        Assert.Equal(CloseResults.Merged, r.Result);
+        Assert.Equal(r.MergeCommit, f.Repo.Sha("main"));
+        Assert.Equal("readme\r\nmore\r\n", File.ReadAllText(readme));
+        Assert.Equal(EpicStates.Closed, f.Store.Get("42").State);
+    }
+
+    // main gets a.txt, b.txt and c.txt; the epic (with main merged in) changes all three. Returns main's tip.
+    static string EpicEditsAbc(Fixture f)
+    {
+        f.Repo.Commit("abc", ("a.txt", "1\n"), ("b.txt", "1\n"), ("c.txt", "1\n"));
+        f.Repo.Git("checkout", "-q", Epic);
+        f.Repo.Git("merge", "-q", "--no-edit", "main");
+        f.Repo.Commit("9935: edit abc\n\nTicket: 9935", ("a.txt", "2\n"), ("b.txt", "2\n"), ("c.txt", "2\n"));
+        f.Repo.Git("checkout", "-q", "main");
+        return f.Repo.Sha("main");
+    }
+
+    [Fact]
+    public void UserEditMadeAfterTheAssessment_StopsTheFastForwardAndIsNeverOfferedForCheckout()
+    {
+        using var f = new Fixture();
+        var mainBefore = EpicEditsAbc(f);
+        var a = Path.Combine(f.Repo.Root, "a.txt");
+        var closer = f.Closer();
+        closer.AfterMerge = _ => File.WriteAllText(a, "mine\n");
+
+        var e = Assert.Throws<ToolException>(() => closer.Close("42", new CloseOptions()));
+
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("could not fast-forward 'main'", e.Message);
+        Assert.DoesNotContain("checkout --", e.Message);
+        Assert.Equal("mine\n", File.ReadAllText(a));
+        Assert.Equal(mainBefore, f.Repo.Sha("main"));
+        Assert.Equal(EpicStates.Open, f.Store.Get("42").State);
+    }
+
+    [Fact]
+    public void HeldFileStopsTheFastForwardHalfWay_ReportsHowToRestoreTheTree()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var f = new Fixture();
+        var mainBefore = EpicEditsAbc(f);
+
+        // b.txt stat-clean (older than the index), so git trusts it without reading and fails only when it replaces it.
+        var held = Path.Combine(f.Repo.Root, "b.txt");
+        File.SetLastWriteTimeUtc(held, DateTime.UtcNow.AddHours(-1));
+        f.Repo.Git("update-index", "--refresh");
+        FileStream? handle = null;
+        var closer = f.Closer();
+        closer.AfterMerge = _ => handle = new FileStream(held, FileMode.Open, FileAccess.Read, FileShare.None);
+        ToolException e;
+        try
+        {
+            e = Assert.Throws<ToolException>(() => closer.Close("42", new CloseOptions()));
+        }
+        finally
+        {
+            handle?.Dispose();
+        }
+
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("could not fast-forward 'main'", e.Message);
+        Assert.DoesNotContain('\n', e.Message);
+        Assert.Matches(@"already rewrote \d+ tracked file\(s\) in '.+' before it stopped; restore them with: git -C \S+ checkout -- a\.txt (b\.txt )?c\.txt", e.Message);
+        Assert.Contains("delete the file(s) it created: t1.txt t2.txt", e.Message);
+        Assert.Equal(mainBefore, f.Repo.Sha("main"));
+        Assert.Equal(EpicStates.Open, f.Store.Get("42").State);
+        Assert.Equal("2\n", File.ReadAllText(Path.Combine(f.Repo.Root, "a.txt")));
+
+        // Following the advice restores the checkout, and the close then succeeds.
+        f.Repo.Git("checkout", "--", "a.txt", "b.txt", "c.txt");
+        File.Delete(Path.Combine(f.Repo.Root, "t1.txt"));
+        File.Delete(Path.Combine(f.Repo.Root, "t2.txt"));
+        Assert.Empty(f.Repo.Git("status", "--porcelain"));
+        Assert.Equal(CloseResults.Merged, f.Close().Result);
+    }
+
+    [Fact]
+    public void TargetNotAtTheMergeCommitAfterTheMove_IsNotRecordedClosed()
+    {
+        using var f = new Fixture();
+        f.Repo.Git("checkout", "-q", "-b", "other", f.MainBefore);
+        string? moved = null;
+        var closer = f.Closer();
+        closer.AfterMove = merge =>
+        {
+            moved = f.Repo.Git("commit-tree", "-p", merge, "-m", "concurrent", merge + "^{tree}");
+            f.Repo.Git("update-ref", GitRunner.HeadsRef("main"), moved);
+        };
+
+        var e = Assert.Throws<ToolException>(() => closer.Close("42", new CloseOptions()));
+
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("does not point at the merge commit", e.Message);
+        Assert.Contains("the epic was not recorded as closed", e.Message);
+        Assert.Equal(moved, f.Repo.Sha("main"));
+        Assert.Equal(EpicStates.Open, f.Store.Get("42").State);
+        Assert.True(f.LockFree());
+    }
+
+    [Fact]
+    public void MergeMessageLongerThanTheWindowsCommandLine_IsPassedByFile()
+    {
+        using var f = new Fixture();
+        var message = Path.Combine(f.Repo.Sandbox, "msg.txt");
+        File.WriteAllText(message, $"9936: {new string('x', 40_000)}\n\nTicket: 9936\n");
+        f.Repo.Git("checkout", "-q", Epic);
+        f.Repo.Write("big.txt", "big\n");
+        f.Repo.Git("add", "-A");
+        f.Repo.Git("commit", "-q", "-F", message);
+        f.Repo.Git("checkout", "-q", "main");
+
+        var r = f.Close();
+
+        Assert.Equal(CloseResults.Merged, r.Result);
+        Assert.True(r.Message.Length > 32_768);
+        Assert.Equal(r.Message, f.Repo.Git("log", "-1", "--format=%B", "main").TrimEnd('\n'));
+    }
+
+    [Fact]
     public void ActiveBranchBeingRebased_RefusesAndChangesNothing()
     {
         // The reviewer's scenario: main stopped at an `edit` step (clean tree, worktree detached). Moving main now would be
@@ -445,6 +585,31 @@ public class EpicCloserTests
         Assert.Equal(r.MergeCommit, f.Repo.Sha("main"));
         Assert.Contains(r.Warnings, w => w.Contains("checked out", StringComparison.Ordinal));
         Assert.Equal(Epic, TempRepo.RunGit(elsewhere, "rev-parse", "--abbrev-ref", "HEAD"));
+    }
+
+    [Fact]
+    public void DeleteBranch_KeepsEpicBeingRebasedInAWorktree()
+    {
+        using var f = new Fixture();
+        var elsewhere = Path.Combine(f.Repo.Sandbox, "epic-wt");
+        f.Repo.Git("worktree", "add", "-q", elsewhere, Epic);
+        var git = new GitRunner(elsewhere);
+
+        // Stopped at an `edit` step: the worktree is detached, so the epic branch reads as checked out nowhere.
+        var stop = git.Try("-c", "sequence.editor=sed -i -e s/^pick/edit/", "rebase", "-i", "HEAD~1");
+        Assert.True(stop.ExitCode == 0, stop.StdErr);
+        try
+        {
+            var r = f.Close(new CloseOptions(DeleteBranch: true));
+            Assert.Equal(CloseResults.Merged, r.Result);
+            Assert.False(r.BranchDeleted);
+            Assert.Contains(r.Warnings, w => w.Contains("being rebased in", StringComparison.Ordinal));
+            Assert.NotEmpty(f.Repo.Git("branch", "--list", Epic));
+        }
+        finally
+        {
+            git.Try("rebase", "--abort");
+        }
     }
 
     [Fact]

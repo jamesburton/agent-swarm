@@ -27,6 +27,13 @@ public sealed class IntegrationWorktree
 {
     readonly GitRunner repo;
 
+    enum Registered
+    {
+        None,
+        Usable,
+        Stale,
+    }
+
     /// <summary>Initializes a new instance of the <see cref="IntegrationWorktree"/> class.</summary>
     /// <param name="repo">Runner in the main worktree.</param>
     /// <param name="worktreePath">Absolute worktree path.</param>
@@ -46,15 +53,37 @@ public sealed class IntegrationWorktree
 
     /// <summary>Creates the worktree detached at the epic, or reuses and cleans an existing one.</summary>
     /// <param name="epicBranch">Epic branch.</param>
-    /// <exception cref="ToolException">The path is a non-empty directory that is not a worktree of this repo, or git fails (exit code 4).</exception>
+    /// <exception cref="ToolException">
+    /// The path is a non-empty directory that is not a usable worktree of this repo (unregistered, or a stale registration), or git fails (exit code 4).
+    /// </exception>
     public void Ensure(string epicBranch)
     {
-        repo.Run("worktree", "prune");
-        if (!IsRegistered())
+        var registration = Registration();
+        if (registration != Registered.Usable)
         {
-            if (Directory.Exists(WorktreePath) && Directory.EnumerateFileSystemEntries(WorktreePath).Any())
+            var nonEmpty = Directory.Exists(WorktreePath) && Directory.EnumerateFileSystemEntries(WorktreePath).Any();
+            if (nonEmpty)
             {
-                throw new ToolException(ExitCodes.Environment, $"'{WorktreePath}' exists but is not a worktree of this repository", "remove it or set worktreeRoot in .swarm/batch.json");
+                throw new ToolException(
+                    ExitCodes.Environment,
+                    registration == Registered.Stale
+                        ? $"'{WorktreePath}' is registered as a worktree git cannot use (its .git file is missing) and is not empty"
+                        : $"'{WorktreePath}' exists but is not a worktree of this repository",
+                    "remove it or set worktreeRoot in .swarm/batch.json");
+            }
+
+            // Drop a stale registration of this path only: the repository-wide `git worktree prune` would also drop the user's
+            // stale registrations, including one whose directory still holds work (git calls it prunable once its .git file
+            // is gone). `git worktree remove` deregisters a missing directory; an existing (empty) one fails git's validation,
+            // so it is deleted first.
+            if (registration == Registered.Stale)
+            {
+                if (Directory.Exists(WorktreePath))
+                {
+                    Directory.Delete(WorktreePath);
+                }
+
+                repo.Run("worktree", "remove", "--force", WorktreePath);
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(WorktreePath)!);
@@ -158,11 +187,25 @@ public sealed class IntegrationWorktree
         return new RebaseOutcome(true, output);
     }
 
-    bool IsRegistered()
+    // How git has this path registered; a registration git lists as `prunable` (directory or its .git file gone) is Stale.
+    Registered Registration()
     {
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        return repo.Lines("worktree", "list", "--porcelain")
-            .Where(l => l.StartsWith("worktree ", StringComparison.Ordinal))
-            .Any(l => string.Equals(Path.GetFullPath(l["worktree ".Length..]).TrimEnd('\\', '/'), WorktreePath.TrimEnd('\\', '/'), comparison));
+        var state = Registered.None;
+        var mine = false;
+        foreach (var l in repo.Lines("worktree", "list", "--porcelain"))
+        {
+            if (l.StartsWith("worktree ", StringComparison.Ordinal))
+            {
+                mine = string.Equals(Path.GetFullPath(l["worktree ".Length..]).TrimEnd('\\', '/'), WorktreePath.TrimEnd('\\', '/'), comparison);
+                state = mine ? Registered.Usable : state;
+            }
+            else if (mine && (l == "prunable" || l.StartsWith("prunable ", StringComparison.Ordinal)))
+            {
+                state = Registered.Stale;
+            }
+        }
+
+        return state;
     }
 }

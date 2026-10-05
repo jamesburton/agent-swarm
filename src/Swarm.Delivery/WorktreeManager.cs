@@ -118,9 +118,21 @@ public sealed class WorktreeManager
         if (worktrees.FirstOrDefault(w => w.Branch == branch) is { } existing)
         {
             var meta = BranchMetaStore.ReadAll(Git).GetValueOrDefault(branch);
-            return meta?.Base == request.BaseBranch
-                ? new WorktreeCreateResult(SwarmJson.SchemaVersion, false, existing.Path, branch, request.Ticket, request.BaseBranch, existing.Head ?? "", [])
-                : throw new ToolException(ExitCodes.BadInput, $"branch '{branch}' is already checked out at '{existing.Path}' (base '{meta?.Base ?? "unknown"}')", "use another ticket or slug");
+            if (meta?.Base != request.BaseBranch)
+            {
+                throw new ToolException(ExitCodes.BadInput, $"branch '{branch}' is already checked out at '{existing.Path}' (base '{meta?.Base ?? "unknown"}')", "use another ticket or slug");
+            }
+
+            // An idempotent repeat must hand back a usable worktree, not a stale registration.
+            if (existing.Prunable || !Directory.Exists(existing.Path))
+            {
+                var (what, fix) = Directory.Exists(existing.Path)
+                    ? ("its directory exists but git cannot use it", $"inspect it; git worktree repair \"{existing.Path}\" restores a missing .git file")
+                    : ("its directory is missing", $"to recreate it on the same branch: git worktree remove \"{existing.Path}\", then git worktree add \"{existing.Path}\" {branch}");
+                throw new ToolException(ExitCodes.BadInput, $"the worktree of branch '{branch}' at '{existing.Path}' is a stale registration ({what})", fix);
+            }
+
+            return new WorktreeCreateResult(SwarmJson.SchemaVersion, false, existing.Path, branch, request.Ticket, request.BaseBranch, existing.Head ?? "", []);
         }
 
         if (Git.RefExists(GitRunner.HeadsRef(branch)))
@@ -128,25 +140,29 @@ public sealed class WorktreeManager
             throw new ToolException(ExitCodes.BadInput, $"branch '{branch}' already exists without a worktree", "delete it or use another slug");
         }
 
-        if (worktrees.FirstOrDefault(w => WorktreeList.SamePath(w.Path, path)) is { } registered)
+        var registered = worktrees.FirstOrDefault(w => WorktreeList.SamePath(w.Path, path));
+        if (registered is { Locked: true })
         {
-            if (registered.Locked)
-            {
-                throw new ToolException(ExitCodes.BadInput, $"'{path}' is registered as a locked worktree ({registered.LockReason ?? "no reason given"})", "git worktree unlock it first");
-            }
-
-            if (!registered.Prunable)
-            {
-                throw new ToolException(ExitCodes.BadInput, $"'{path}' is already a worktree of branch '{registered.Branch ?? "(detached)"}'");
-            }
-
-            // A deleted directory with stale registration: drop the registration so the path can be reused.
-            Git.Run("worktree", "prune");
+            throw new ToolException(ExitCodes.BadInput, $"'{path}' is registered as a locked worktree ({registered.LockReason ?? "no reason given"})", "git worktree unlock it first");
         }
 
+        if (registered is { Prunable: false })
+        {
+            throw new ToolException(ExitCodes.BadInput, $"'{path}' is already a worktree of branch '{registered.Branch ?? "(detached)"}'");
+        }
+
+        // Checked before any registration is dropped: a stale registration whose directory still holds files may be the only copy of work.
         if (Directory.Exists(path) && Directory.EnumerateFileSystemEntries(path).Any())
         {
-            throw new ToolException(ExitCodes.Environment, $"'{path}' exists and is not empty", "remove it or change worktreeRoot");
+            throw new ToolException(
+                ExitCodes.Environment,
+                $"'{path}' exists and is not empty" + (registered is null ? string.Empty : " (git lists it as a stale worktree registration)"),
+                "remove it or change worktreeRoot");
+        }
+
+        if (registered is not null)
+        {
+            Deregister(path);
         }
 
         // Start from the base's sha (not its name) so the fork point recorded below is exactly what was checked out.
@@ -201,7 +217,8 @@ public sealed class WorktreeManager
         var entry = new WorktreeEntry(w.Path, w.Branch!, meta?.Ticket, meta?.Base, baseExists, w.Head, w.Locked, w.LockReason, missing, false, false, 0, null, meta is not null, null, directoryExists);
         try
         {
-            var dirty = !missing && Git.At(w.Path).Run("status", "--porcelain").Length > 0;
+            // The user's own line-ending settings: under the runner's fixed core.autocrlf=false a clean CRLF checkout reads as modified.
+            var dirty = !missing && Git.WithRepoLineEndings().At(w.Path).Run("status", "--porcelain").Length > 0;
             if (meta is null)
             {
                 return entry with { Dirty = dirty };
@@ -217,6 +234,27 @@ public sealed class WorktreeManager
             // Unknown state is reported as dirty and unmerged, so nothing downstream treats it as disposable.
             return entry with { Dirty = true, Error = TextLines.OneLine(e.Message) };
         }
+    }
+
+    // Drops the stale registration of this path only. The repository-wide `git worktree prune` would also drop every other
+    // stale registration, including one whose directory still holds work (git calls it prunable when its .git file is gone).
+    // `git worktree remove` deregisters a missing directory; an existing one (checked empty by the caller) fails git's
+    // validation, so it is deleted first and recreated by `worktree add`.
+    void Deregister(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new ToolException(ExitCodes.Environment, $"could not reuse '{path}': {TextLines.OneLine(e.Message)}", "remove it or change worktreeRoot");
+        }
+
+        Git.Run("worktree", "remove", path);
     }
 
     // The three config writes can lose a race for .git/config.lock; retry briefly, then undo the worktree and branch so a failed create leaves nothing behind.

@@ -47,9 +47,12 @@ public static class Program
         {
             var ctx = common.Resolve(p, currentDirectory, ConfigOverrides.None);
             var store = new EpicStore(new WorktreeManager(ctx.Repo, ctx.Config).State);
-            IReadOnlyList<EpicRecord> epics = p.GetValue(optionalId) is { } one ? [store.Get(one)] : store.All();
+
+            // Listing every epic: one unreadable record file is reported on its own (warning + `unreadable`), never failing the rest.
+            var listing = p.GetValue(optionalId) is { } one ? new EpicListing([store.Get(one)], []) : store.All();
+            WarnAll(stderr, ctx.Verbosity, listing.Unreadable.Select(u => $"epic file '{u.Path}' skipped: {u.Error}").ToList());
             var assessor = new EpicAssessor(ctx.Repo, ctx.Config);
-            stdout.WriteLine(SwarmJson.Line(new EpicStatusList(SwarmJson.SchemaVersion, epics.Select(e => assessor.Assess(e, p.GetValue(into))).ToList())));
+            stdout.WriteLine(SwarmJson.Line(new EpicStatusList(SwarmJson.SchemaVersion, listing.Records.Select(e => assessor.Assess(e, p.GetValue(into))).ToList(), listing.Unreadable)));
             return ExitCodes.Ok;
         });
 

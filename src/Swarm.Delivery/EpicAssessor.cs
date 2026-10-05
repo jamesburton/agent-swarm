@@ -85,7 +85,8 @@ public sealed record EpicStatus(
 /// <summary>stdout of <c>epic status</c>.</summary>
 /// <param name="SchemaVersion">Always <see cref="SwarmJson.SchemaVersion"/>.</param>
 /// <param name="Epics">One status per epic, by id.</param>
-public sealed record EpicStatusList(int SchemaVersion, IReadOnlyList<EpicStatus> Epics);
+/// <param name="Unreadable">Record files that could not be read (each is also a stderr warning); empty for <c>status &lt;id&gt;</c>.</param>
+public sealed record EpicStatusList(int SchemaVersion, IReadOnlyList<EpicStatus> Epics, IReadOnlyList<EpicFileError> Unreadable);
 
 /// <summary>Computes an epic's status and close blockers (one function for status and close).</summary>
 /// <param name="repo">The repository.</param>
@@ -185,9 +186,10 @@ public sealed class EpicAssessor(RepoPaths repo, SwarmConfig config)
                 true));
         }
 
+        // The user's own line-ending settings: under the runner's fixed core.autocrlf=false a clean CRLF checkout reads as modified.
         if (WorktreeList.CheckedOut(git, into) is { Prunable: false } active
             && Directory.Exists(active.Path)
-            && git.At(active.Path).Run("status", "--porcelain", "--untracked-files=no").Length > 0)
+            && git.WithRepoLineEndings().At(active.Path).Run("status", "--porcelain", "--untracked-files=no").Length > 0)
         {
             blockers.Add(new EpicBlocker(BlockerCodes.ActiveDirty, $"'{into}' is checked out at '{active.Path}' with uncommitted changes to tracked files", false));
         }

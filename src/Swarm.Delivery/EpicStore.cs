@@ -77,10 +77,43 @@ public sealed class EpicStore(StateLayout state)
     /// <param name="record">The record.</param>
     public void Save(EpicRecord record) => SwarmJson.WriteFile(PathOf(record.Id), record);
 
-    /// <summary>Reads every record.</summary>
-    /// <returns>Records ordered by id.</returns>
-    public IReadOnlyList<EpicRecord> All() =>
-        Directory.Exists(Dir)
-            ? Directory.EnumerateFiles(Dir, "*.json").Select(f => Get(Path.GetFileNameWithoutExtension(f))).OrderBy(r => r.Id, StringComparer.Ordinal).ToList()
-            : [];
+    /// <summary>Reads every record; a file that cannot be read is reported on its own and never hides the others.</summary>
+    /// <returns>Records ordered by id, and the unreadable files ordered by path.</returns>
+    public EpicListing All()
+    {
+        var records = new List<EpicRecord>();
+        var unreadable = new List<EpicFileError>();
+        foreach (var file in Directory.Exists(Dir) ? Directory.EnumerateFiles(Dir, "*.json") : [])
+        {
+            try
+            {
+                if (Find(Path.GetFileNameWithoutExtension(file)) is { } record)
+                {
+                    records.Add(record);
+                }
+                else
+                {
+                    unreadable.Add(new EpicFileError(file, "empty record (or deleted while listing)"));
+                }
+            }
+            catch (Exception e) when (e is ToolException or IOException or UnauthorizedAccessException)
+            {
+                unreadable.Add(new EpicFileError(file, TextLines.OneLine(e.Message)));
+            }
+        }
+
+        return new EpicListing(
+            records.OrderBy(r => r.Id, StringComparer.Ordinal).ToList(),
+            unreadable.OrderBy(u => u.Path, StringComparer.Ordinal).ToList());
+    }
 }
+
+/// <summary>A file in the epic records directory that could not be read as a record.</summary>
+/// <param name="Path">The file.</param>
+/// <param name="Error">One-line reason (unsafe file name, invalid JSON, I/O failure).</param>
+public sealed record EpicFileError(string Path, string Error);
+
+/// <summary>Result of <see cref="EpicStore.All"/>.</summary>
+/// <param name="Records">Readable records, ordered by id.</param>
+/// <param name="Unreadable">Files that could not be read, ordered by path.</param>
+public sealed record EpicListing(IReadOnlyList<EpicRecord> Records, IReadOnlyList<EpicFileError> Unreadable);

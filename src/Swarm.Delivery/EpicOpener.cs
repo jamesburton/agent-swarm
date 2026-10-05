@@ -52,7 +52,10 @@ public sealed class EpicOpener(RepoPaths repo, SwarmConfig config)
     /// <param name="from">Base branch, or null for config <c>baseBranch</c>.</param>
     /// <param name="kind">Value for <c>{kind}</c>, or null.</param>
     /// <returns>The result.</returns>
-    /// <exception cref="ToolException">Naming or path (2); conflicting epic, existing branch or missing base (3).</exception>
+    /// <exception cref="ToolException">
+    /// Naming or path (2); conflicting epic, existing branch or missing base (3); the record could not be saved (4, the new
+    /// branch is deleted again).
+    /// </exception>
     public EpicOpenResult Open(string id, string slug, string? from, string? kind)
     {
         var branch = BranchTemplate.Render(config.EpicTool, id, slug, kind);
@@ -84,8 +87,32 @@ public sealed class EpicOpener(RepoPaths repo, SwarmConfig config)
         var baseCommit = git.RevParse(GitRunner.HeadsRef(baseBranch));
         git.Run("branch", branch, baseCommit);
         var created = new EpicRecord(SwarmJson.SchemaVersion, id, slug, branch, baseBranch, baseCommit, DateTime.UtcNow, EpicStates.Open, null, null, null);
-        store.Save(created);
+        try
+        {
+            store.Save(created);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ToolException)
+        {
+            throw RollBack(branch, baseCommit, store.PathOf(id), e);
+        }
+
         return Result(created, created: true);
+    }
+
+    // A branch without its record would make every retry fail with "branch already exists": delete it again, but only while
+    // it still points at the commit this call created it at (a commit made meanwhile keeps it).
+    ToolException RollBack(string branch, string baseCommit, string recordPath, Exception cause)
+    {
+        var deleted = git.Try("update-ref", "-d", GitRunner.HeadsRef(branch), baseCommit).ExitCode == 0;
+        if (deleted)
+        {
+            git.Try("config", "--remove-section", $"branch.{branch}");
+        }
+
+        return new ToolException(
+            ExitCodes.Environment,
+            $"could not save the epic record '{recordPath}': {TextLines.OneLine(cause.Message)} ({(deleted ? $"branch '{branch}' removed again" : $"branch '{branch}' left behind")})",
+            deleted ? "fix the state directory, then re-run epic open" : $"fix the state directory; the branch no longer points at {baseCommit[..7]}: delete it (git branch -D {branch}) only if it holds nothing you need, then re-run epic open");
     }
 
     EpicOpenResult Result(EpicRecord r, bool created)

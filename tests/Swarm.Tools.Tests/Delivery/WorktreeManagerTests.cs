@@ -272,7 +272,7 @@ public class WorktreeManagerTests
         File.WriteAllText(blob, "x\n");
         var sha = repo.Git("hash-object", "-w", blob);
         var treeFile = Path.Combine(repo.Sandbox, "tree.bin");
-        File.WriteAllBytes(treeFile, [.. System.Text.Encoding.ASCII.GetBytes("100644 a:b.txt "), .. Convert.FromHexString(sha)]);
+        File.WriteAllBytes(treeFile, [.. System.Text.Encoding.ASCII.GetBytes("100644 a:b.txt\0"), .. Convert.FromHexString(sha)]);
         var tree = repo.Git("hash-object", "-t", "tree", "-w", "--literally", treeFile);
         var commit = repo.Git("commit-tree", tree, "-p", "epic/bad", "-m", "bad path");
         repo.Git("update-ref", "refs/heads/epic/bad", commit);
@@ -280,6 +280,7 @@ public class WorktreeManagerTests
         var m = Manager(repo);
         var e = Assert.Throws<ToolException>(() => m.Create(new CreateRequest("1", "x", "epic/bad", null)));
         Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("invalid path", e.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("\n", e.Message, StringComparison.Ordinal);
         Assert.Empty(repo.Git("branch", "--list", "task/*"));
         Assert.Single(WorktreeList.Read(m.Git));

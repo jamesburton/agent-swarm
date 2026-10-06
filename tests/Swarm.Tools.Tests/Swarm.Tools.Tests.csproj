@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Swarm.Git\Swarm.Git.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.RunState\Swarm.RunState.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Gate\Swarm.Gate.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Batching\Swarm.Batching.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.TestGate.Cli\Swarm.TestGate.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Batch.Cli\Swarm.Batch.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Squashing\Swarm.Squashing.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Squash.Cli\Swarm.Squash.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Delivery\Swarm.Delivery.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Worktree.Cli\Swarm.Worktree.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Swarm.Epic.Cli\Swarm.Epic.Cli.csproj" />
+    <ProjectReference Include="..\Swarm.FakeSuite\Swarm.FakeSuite.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

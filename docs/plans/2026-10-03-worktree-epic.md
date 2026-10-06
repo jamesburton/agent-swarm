@@ -1,6 +1,6 @@
 ---
 created: 2026-10-03
-updated: 2026-10-03
+updated: 2026-10-05
 status: current
 ---
 # Worktree + Epic (Plan C) Implementation Plan
@@ -9,11 +9,11 @@ status: current
 
 **Goal:** Two `dnx` tools on top of Plan A's shared libraries: `worktree` (create, list and prune per-task worktrees that branch from an epic branch) and `epic` (open an epic branch, report its run state, close it with a `--no-ff` merge onto the active branch).
 
-**Architecture:** One new library, `Swarm.Delivery`, holds everything both tools share: branch metadata stored in git config, a parser for `git worktree list --porcelain`, a reader for Plan A run state (`summary.json`, `returned.jsonl`, `events.jsonl`), the merged-work check, epic records, the worktree manager and pruner, and the epic opener, assessor and closer. Two thin `System.CommandLine` CLIs follow Plan A's pattern: `Swarm.Worktree.Cli` (package `Swarm.Worktree`, command `worktree`) and `Swarm.Epic.Cli` (package `Swarm.Epic`, command `epic`). Configuration stays in Plan A's `.swarm/batch.json`. This plan adds two sections to it, `worktree` and `epicTool`, and no other keys (Task 1).
+**Architecture:** One new library, `Swarm.Delivery`, holds everything both tools share: branch metadata stored in git config, a parser for `git worktree list --porcelain`, a reader for Plan A run state (`summary.json`, `returned.jsonl`, `events.jsonl`), the merged-work check, epic records, the worktree manager and pruner, and the epic opener, assessor and closer. Two thin `System.CommandLine` CLIs follow the pattern of the existing CLIs (`Swarm.TestGate.Cli`, `Swarm.Batch.Cli`, `Swarm.Squash.Cli`): `Swarm.Worktree.Cli` (package `Swarm.Worktree`, command `worktree`) and `Swarm.Epic.Cli` (package `Swarm.Epic`, command `epic`). Configuration stays in the shared `.swarm/batch.json`. This plan adds two sections to it, `worktree` and `epicTool`, and no other keys (Task 1).
 
-**Tech Stack:** .NET 10 (`global.json` 10.0.401), C# with nullable, xUnit 2.9.3, System.CommandLine 2.0.0, System.Text.Json, git >= 2.31 (2.38+ to detect squash-landed content; see C5), NuGet tool packaging (`PackAsTool`).
+**Tech Stack:** .NET 10 (`global.json` 10.0.401), C# with nullable, xUnit 2.9.3, System.CommandLine 2.0.0, System.Text.Json, git >= 2.31 (2.38+ to detect squash-landed content; see C5; developed and verified with git 2.54.0.windows.1, whose `git init` creates **reftable** repositories), NuGet tool packaging (`PackAsTool`).
 
-**Spec:** [docs/specs/2026-10-02-agent-swarm-design.md](../specs/2026-10-02-agent-swarm-design.md) (sections 2 run state, 3 delivery mechanics, 5 packaging); [docs/workflow.md](../workflow.md) sections 2 (branch model) and 5 (tools); decisions: [docs/decisions.md](../decisions.md) (Stage 2 run state); dnx facts: [docs/dnx-invocation-notes.md](../dnx-invocation-notes.md). Shared library and conventions: sibling **Plan A** [2026-10-03-testgate-batch.md](2026-10-03-testgate-batch.md) (read its Global Constraints and Tasks 1-8 first). The concurrent sibling **Plan B** (squash, `2026-10-03-squash.md`) is not a dependency. House style: [2026-10-03-swarm-definition-renderer.md](2026-10-03-swarm-definition-renderer.md).
+**Spec:** [docs/specs/2026-10-02-agent-swarm-design.md](../specs/2026-10-02-agent-swarm-design.md) (sections 2 run state, 3 delivery mechanics, 5 packaging); [docs/workflow.md](../workflow.md) sections 2 (branch model) and 5 (tools); decisions: [docs/decisions.md](../decisions.md) (Stage 2 run state; "Testgate + batch production plan"; "Squash lander production plan"); dnx facts: [docs/dnx-invocation-notes.md](../dnx-invocation-notes.md). Shared library and conventions: sibling **Plan A** [2026-10-03-testgate-batch.md](2026-10-03-testgate-batch.md) (read its Global Constraints first) and its user reference [docs/batch-tools.md](../batch-tools.md). Sibling **Plan B** [2026-10-03-squash.md](2026-10-03-squash.md) (user reference [docs/squash-tool.md](../squash-tool.md)) is **merged first**: this plan is stacked on it (branch `swarm/worktree-epic` on `swarm/squash` @ `3b32d30`, which sits on `swarm/testgate-batch` @ `05dd5ce`). Plan C reads what Plan B writes (the `Ticket`/`Epic`/`Batch`/`Swarm-Run` trailers, the shared per-epic lock) but references no Plan B project. House style: [2026-10-03-swarm-definition-renderer.md](2026-10-03-swarm-definition-renderer.md).
 
 ## Global Constraints
 
@@ -25,19 +25,19 @@ Project-wide (every task). These are the same as Plan A's:
 - **LF line endings**; JSON files are written with `SwarmJson.WriteFile`; stdout carries exactly one JSON line per command (`schemaVersion: 1` first, camelCase); progress goes to stderr; an error is exactly ONE stderr line, `error: <what> (<hint>)`.
 - Commit trailer on every commit: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
 - `dnx`: never `--yes`; Git Bash uses `dnx.cmd`; tool args go after `--`; **bump `<Version>` on every re-pack**.
-- Tests use `TempRepo`/`TempDir`/`TestConfig` from Plan A Task 2/5 (sandboxes under `%TEMP%\swt\<8 hex>`). **Tests never fetch, push or contact a remote**: an "upstream" is simulated with local refs (`refs/remotes/origin/main` plus `branch.main.remote/merge` config).
+- Tests use `TempRepo`/`TempDir`/`TestConfig`/`JsonOutput` from `tests/Swarm.Tools.Tests/Support` (sandboxes under `SWARM_TEST_ROOT` or `%TEMP%\swt\<8 hex>`; with git 2.54 the repos are reftable, so ref lock files are not per-ref files; use `TempRepo.LockRef`, which handles both formats). **Tests never fetch, push or contact a remote**: an "upstream" is simulated with local refs (`refs/remotes/origin/main` plus `branch.main.remote/merge` config).
 
 Rulings for this plan (cost-if-wrong in brackets):
 
-- **C1 Prerequisite:** Plan A Tasks 1-8 are merged. They provide `Swarm.Git`, `Swarm.RunState` (including `Cli/CliHost`, `Cli/CommonOptions`), `tests/Swarm.Tools.Tests` and its `Support/` fixtures. Plan C reads the files Plan A's batch tool writes (`BatchSummary`, `ReturnedEntry` and `RunEvent` from `Swarm.RunState`). It does not reference `Swarm.Gate` or `Swarm.Batching`. Namespaces are Plan A's: `ExitCodes`, `ToolException`, `GitRunner`, `RepoLocator`/`RepoPaths`, `SafeName`, `TextLines` and `FileTree` are in `Swarm.Git`; `StatePaths`, `StateLayout`, `SwarmConfig`, `ConfigLoader`, `SwarmJson`, `JsonlFile`, `ReturnLedger`, `SlotSemaphore` and the CLI host are in `Swarm.RunState`. [If Plan A renames any of these, update the Consumes blocks before executing.]
-- **C2 Config:** one shared file, `.swarm/batch.json` in the main worktree. This plan **adds only** two sections: `worktree` and `epicTool`. The section cannot be called `epic`, because Plan A already uses `"epic": "E1"` as the batch epic id string. Plan C reuses Plan A's top-level `worktreeRoot`, `baseBranch` (the active branch), `stateDir` and `epicBranchTemplate`, and redefines none of them. Plan B adds only its own section. Whichever plan lands second rebases two additive hunks (`SwarmConfig` properties and `ConfigLoader.Check` lines). Plan A's loader **rejects unknown keys**, so testgate and batch packages built before Task 1 reject a config that contains the new sections. Re-pack every tool with a bumped version after Task 1. [Old binaries fail loudly with `'worktree'`; they do not misbehave silently.]
+- **C1 Prerequisite:** Plan A (all tasks plus its final-review fix wave) and Plan B are merged; this branch is stacked on both. They provide `Swarm.Git`, `Swarm.RunState` (including `Cli/CliHost.cs`, which holds `CliHost` and `CtrlCScope`, and `Cli/CommonOptions.cs`, which holds `CommonOptions` and `ToolContext`), `Swarm.Batching`, `Swarm.Squashing`, `tests/Swarm.Tools.Tests` and its `Support/` fixtures. Plan C reads the files batch writes (`BatchSummary`, `ReturnedEntry` and `RunEvent` from `Swarm.RunState`) and the trailers the squash lander writes. Plan C's **production** projects do not reference `Swarm.Gate`, `Swarm.Batching` or `Swarm.Squashing` (`Swarm.Squashing` depends on `Swarm.Batching`). Its **tests** may use `Swarm.Squashing` (`SquashMessage.Build`, `SquashRunner`), which the test project already references, so trailer parsing and the `squash run` interplay are checked against the real producer. Namespaces as built: `ExitCodes`, `ToolException`, `ToolErrors`, `GitRunner` (including `GitRunner.HeadsRef(branch)`, `WithIdentity`, `WithEnvironment`, `At`, `RefExists`, `RevParse`, `Lines`), `ProcessResult`, `RepoLocator`/`RepoPaths`, `SafeName`, `TextLines`, `SharedFile` and `FileTree` are in `Swarm.Git`; `StatePaths`, `StateLayout`, `SwarmConfig`, `ConfigOverrides`, `ConfigLoader`, `SquashConfig`, `SwarmJson`, `JsonlFile`, `ReturnLedger`, `RunDirectories`, `SlotSemaphore`/`SlotOptions`, `Progress`/`Verbosity` and the output records are in `Swarm.RunState`; `CliHost`, `CtrlCScope`, `CommonOptions` and `ToolContext` are in `Swarm.RunState.Cli`. Build every full ref with `GitRunner.HeadsRef(branch)`, never a `"refs/heads/" +` literal (DRY; the executed Plans A and B do the same).
+- **C2 Config:** one shared file, `.swarm/batch.json` in the main worktree. This plan **adds only** two sections: `worktree` and `epicTool`. The section cannot be called `epic`, because Plan A already uses `"epic": "E1"` as the batch epic id string. Plan C reuses the top-level `worktreeRoot`, `baseBranch` (the active branch; the squash lander also uses it to bound its history scan), `stateDir` and `epicBranchTemplate`, and redefines none of them. Plan B landed first and added a top-level `lander` key and a `squash` section (`SwarmConfig.Lander`, `SwarmConfig.Squash`, and the `lander` rule plus `e.AddRange(SquashConfig.Check(c.Squash));` at the end of `ConfigLoader.Check`). Plan C's two additive hunks go **after** those: the properties after `Squash` (before the `[JsonIgnore] EpicBranch` property), the checks after the `SquashConfig.Check` line. The keys `worktree`/`epicTool` do not collide with `lander`/`squash`. The loader **rejects unknown keys**, and all three existing tools load `.swarm/batch.json`, so `Swarm.TestGate` 0.1.1, `Swarm.Batch` 0.2.0 and `Swarm.Squash` 0.1.0 reject a config that contains the new sections. Task 1 therefore bumps and re-packs **all three**: `Swarm.TestGate` 0.1.1 -> 0.1.2, `Swarm.Batch` 0.2.0 -> 0.2.1, `Swarm.Squash` 0.1.0 -> 0.1.1. [Old binaries fail loudly with `'worktree'`; they do not misbehave silently.]
 - **C3 Branch naming:** each section has `branchTemplate`, `defaultKind` and `allowedPrefixes`. The placeholders are `{id}`, `{slug}` and `{kind}`. Defaults: `worktree.branchTemplate = "task/{id}-{slug}"` and `epicTool.branchTemplate = "epic/{id}-{slug}"`, with no prefix restriction. `allowedPrefixes` entries must end in `/` and are matched **case-sensitively**. Templates are checked when the config loads (exit 2), and every rendered branch is checked again before anything is created (exit 2), then validated with `git check-ref-format --branch`. The example-org Azure DevOps setup is `{"branchTemplate": "{kind}/{id}-{slug}", "defaultKind": "feature", "allowedPrefixes": ["feature/", "bugfix/"]}` in both sections. Slugs are lowercase, hyphen-separated and at most 40 characters. [A repo with mixed-case prefixes must list each spelling.]
 - **C4 Managed worktrees:** a worktree is "managed" when its branch has the git config entries `branch.<b>.swarm-ticket`, `branch.<b>.swarm-base` and `branch.<b>.swarm-fork-point`. They are written by `worktree create` and removed by git itself when `git branch -D` deletes the branch. Managed status is **never derived from paths**: git reports `C:/...` paths, and the temp directory can be an 8.3 short path. The path is `<worktreeRoot>/t-<ticket>` (`worktreeRoot` defaults to `<main parent>/<repo>-wt`, as in Plan A), guarded at 200 characters. Batch's `int-<epic>` worktree and the user's own worktrees are not managed, and prune never touches them. [A worktree made by hand on a `task/...` branch is invisible to prune.]
-- **C5 Merged work:** a branch counts as landed when one of these is true. (1) **Ledger:** Plan A's run state recorded it landed: a `summary.json` `landed[].branch`, or a `returned.jsonl` entry with `final: rebased-and-landed`. (2) **Ancestor:** `merge-base --is-ancestor` against its base. (3) **Content:** `git merge-tree --write-tree <base> <branch>` yields the base's tree, which is how squash-landed work is detected. With git older than 2.38, merge-tree fails and the branch counts as **not** merged, which is the safe direction. A branch whose head equals its recorded fork point is **empty**, not merged. When the base branch is gone, the check runs against `baseBranch`. [Content check costs one merge-tree per worktree.]
-- **C6 Prune safety:** a locked worktree is **never** removed, not even with `--force`; unlock it with `git worktree unlock`. Dirty worktrees (including untracked files), unmerged worktrees, empty ones and ones with an abandoned base are removed only with `--force`. `--dry-run` changes nothing and reports what would happen. Merged branches are deleted with `git branch -D`, because `-d` refuses squash-landed branches; merge status is verified by C5 first. A worktree whose directory is gone has its metadata pruned with `git worktree prune`, which is repository-wide: git also drops metadata of other unlocked worktrees whose directories are missing. Its branch is deleted only when merged, or with `--force`. A removal that fails (Windows file lock) is reported per item, the run continues, and the exit code is 4. [Locked worktrees accumulate until a human unlocks them.]
+- **C5 Merged work:** a branch counts as landed when one of these is true. (1) **Ledger:** Plan A's run state recorded it landed: a `summary.json` `landed[].branch`, or a `returned.jsonl` entry with `final: rebased-and-landed`. (2) **Ancestor:** `merge-base --is-ancestor` against its base. (3) **Content:** `git merge-tree --write-tree <base> <branch>` yields the base's tree, which is how squash-landed work is detected. With git older than 2.38, merge-tree fails and the branch counts as **not** merged, which is the safe direction. A branch whose head equals its recorded fork point is **empty**, not merged. When the base branch is gone, the check runs against `baseBranch`. The Ledger check sees only `batch` runs: `squash run` writes no run state (no run folder, `summary.json`, `returned.jsonl` or `events.jsonl`), so a manual landing is found by the Ancestor or Content check only, and `batch` prunes finished run folders beyond `keepRuns` (default 20), so old ledger entries disappear too. For the same reason a task that `batch` returned and a human later landed with `squash run` would block `epic close` forever; `EpicAssessor` therefore drops a returned or unprocessed task whose branch `MergeCheck.LandedVia` reports landed on the epic (Task 8). [Content check costs one merge-tree per worktree.]
+- **C6 Prune safety:** a locked worktree is **never** removed, not even with `--force`; unlock it with `git worktree unlock`. Dirty worktrees (including untracked files), unmerged worktrees, empty ones and ones with an abandoned base are removed only with `--force`. `--dry-run` changes nothing and reports what would happen. Merged branches are deleted with `git branch -D`, because `-d` refuses squash-landed branches; merge status is verified by C5 first. A worktree whose directory is gone has its metadata pruned with `git worktree prune`, which is repository-wide: git also drops metadata of other unlocked worktrees whose directories are missing. Its branch is deleted only when merged, or with `--force`. A removal that fails (Windows file lock) is reported per item, the run continues, and the exit code is 4. Observed with git 2.54 on Windows (with and without `--force`): `git worktree remove` exits 255 with `failed to delete '<path>': Invalid argument`, but it has already deleted the worktree's `.git` file and its registration, so the directory stays behind **unregistered** with the held file, and the branch and its `swarm-*` metadata stay. Later `list`/`prune` runs no longer see it; the user deletes the directory once the file is released and then deletes the branch (`git branch -D`). [Locked worktrees accumulate until a human unlocks them.]
 - **C7 Epic records:** `<state>/epics/<id>.json` (`EpicRecord`, schema 1). `epic open` creates the branch from `baseBranch` (or `--from`) **without checking it out**. It is idempotent: the same id and slug on an existing open epic returns `created: false`. It also reports `batchEpic`, the value for `batch --epic` that maps back to this branch through `epicBranchTemplate`, or null with a warning. [A repo whose batch template cannot express the epic branch needs a changed `epicBranchTemplate`.]
 - **C8 Close mechanics:** close merges `git merge --no-ff --no-edit -m <message>` in a tool-owned detached worktree `<worktreeRoot>/close-<id>`, using the user's identity, and **never squashes**. If the active branch is checked out in some worktree (normally the user's main worktree), that worktree is fast-forwarded with `merge --ff-only`, so its files follow. Otherwise the ref moves with compare-and-swap `update-ref`. The epic branch is kept unless `--delete-branch` is given (`git branch -d`). The tool never fetches or pushes: "behind upstream" compares against the **last fetched** upstream ref. [A stale fetch lets a close through; fetch before closing.]
-- **C9 Close blockers** (`EpicBlocker.Code`, waivable with `--force` in brackets): `batch-running` [no], `run-unfinished` [yes], `tasks-returned` [yes], `worktrees-unmerged` [yes], `nothing-to-merge` [no], `active-dirty` (tracked changes only; untracked files do not count, because merge refuses to overwrite them anyway) [no], `active-behind-upstream` [no], `epic-closed` [no], `branch-missing` [no]. `epic status` reports the same blockers that `epic close` enforces, computed by one function (`EpicAssessor.Assess`). [A waived blocker is listed in `waived` in the JSON.]
+- **C9 Close blockers** (`EpicBlocker.Code`, waivable with `--force` in brackets): `batch-running` [no] (a live holder of the per-epic lock `<state>/locks/batch-<batch epic id>`, which `batch run` and `squash run` share; the detail says `a batch or squash run holds epic '<id>'`), `run-unfinished` [yes], `tasks-returned` [yes], `worktrees-unmerged` [yes], `nothing-to-merge` [no], `active-dirty` (tracked changes only; untracked files do not count, because merge refuses to overwrite them anyway) [no], `active-behind-upstream` [no], `epic-closed` [no], `branch-missing` [no]. `epic status` reports the same blockers that `epic close` enforces, computed by one function (`EpicAssessor.Assess`). [A waived blocker is listed in `waived` in the JSON.]
 - **C10 Exit codes:** Plan A's R1 values, unchanged. 0 ok; 1 work came back (close blocked or conflicted); 2 usage/config/path; 3 bad input (unknown or closed epic, existing branch, missing base); 4 environment (git, file locks, refs moved); 5 is unused here. `epic close` prints its JSON result for 0 and 1; for 2/3/4 there is no stdout.
 - **C11 Package ids `Swarm.Worktree` and `Swarm.Epic` are placeholders and NOT REAL.** They are unclaimed on nuget.org, which is a dependency-confusion risk: anyone could publish under those names. Run them only with `--add-source <your feed>` until the human reserves an owned id prefix. The package `Description` says so.
 
@@ -53,14 +53,16 @@ Rulings for this plan (cost-if-wrong in brackets):
 
 | Path | Responsibility |
 |---|---|
-| `src/Swarm.RunState/SwarmConfig.cs` (modify) | Add `Worktree` and `EpicTool` section properties |
-| `src/Swarm.RunState/ConfigLoader.cs` (modify) | Validate the two sections |
+| `src/Swarm.RunState/SwarmConfig.cs` (modify) | Add `Worktree` and `EpicTool` section properties (after Plan B's `Squash`) |
+| `src/Swarm.RunState/ConfigLoader.cs` (modify) | Validate the two sections (after Plan B's `SquashConfig.Check`) |
+| `src/Swarm.TestGate.Cli/`, `src/Swarm.Batch.Cli/`, `src/Swarm.Squash.Cli/` `*.csproj` (modify) | Version bumps 0.1.2 / 0.2.1 / 0.1.1, because the strict loaders of the old packages reject the new keys (C2) |
 | `src/Swarm.RunState/BranchSections.cs` | `IBranchNaming`, `WorktreeSection`, `EpicSection`, `BranchTemplate` (render, slug and prefix rules) |
 | `src/Swarm.Delivery/` | `WorktreeList`, `BranchMeta`, `EpicStore`, `RunHistory`, `MergeCheck`, `WorktreeManager`, `Pruner`, `EpicNaming`, `EpicOpener`, `EpicAssessor`, `TrailerLog`, `MergeMessage`, `EpicCloser` |
 | `src/Swarm.Worktree.Cli/` | `worktree create\|list\|prune` (package `Swarm.Worktree`, NOT REAL) |
 | `src/Swarm.Epic.Cli/` | `epic open\|status\|close` (package `Swarm.Epic`, NOT REAL) |
 | `tests/Swarm.Tools.Tests/Delivery/`, `RunState/`, `Cli/` | xUnit tests; `Support/RunStateFixture.cs` writes Plan A run-state files |
 | `docs/worktree-epic-tools.md` | User reference for both tools |
+| `docs/batch-tools.md`, `docs/squash-tool.md`, `docs/dnx-invocation-notes.md`, `docs/decisions.md`, `AGENTS.md`, `README.md` (modify) | New versions and config keys (Task 1), links, smoke record and decision entry (Task 10) |
 
 ---
 
@@ -68,11 +70,12 @@ Rulings for this plan (cost-if-wrong in brackets):
 
 **Files:**
 - Create: `src/Swarm.RunState/BranchSections.cs`
-- Modify: `src/Swarm.RunState/SwarmConfig.cs` (two properties at the end of `SwarmConfig`), `src/Swarm.RunState/ConfigLoader.cs` (two lines at the end of `Check`)
+- Modify: `src/Swarm.RunState/SwarmConfig.cs` (two properties after Plan B's `Squash` property), `src/Swarm.RunState/ConfigLoader.cs` (two lines after Plan B's `SquashConfig.Check` line, just before `return e;`)
+- Modify: `src/Swarm.TestGate.Cli/Swarm.TestGate.Cli.csproj`, `src/Swarm.Batch.Cli/Swarm.Batch.Cli.csproj`, `src/Swarm.Squash.Cli/Swarm.Squash.Cli.csproj` (`<Version>` only), `docs/batch-tools.md`, `docs/squash-tool.md` (versions, config rows)
 - Test: `tests/Swarm.Tools.Tests/RunState/BranchTemplateTests.cs`, `tests/Swarm.Tools.Tests/RunState/BranchSectionConfigTests.cs`
 
 **Interfaces:**
-- Consumes: `SwarmConfig`, `ConfigLoader.Parse/Validated/Check` (Plan A Task 5), `ToolException`, `ExitCodes`, `SafeName` (Plan A Task 1).
+- Consumes: `SwarmConfig` (sealed record with `init` properties; the last data properties are `KeepRuns`, `Lander`, `Squash`, then the `[JsonIgnore] EpicBranch` computed property), `ConfigLoader.Parse(string json, string sourceName)`, `ConfigLoader.Validated(SwarmConfig config, string sourceName)` (throws the **first** error as `ToolException(Usage, "<source>: <error>", "see docs/batch-tools.md#configuration")`), `ConfigLoader.Check(SwarmConfig c) -> IReadOnlyList<string>` (strict JSON: unknown keys, `null` for non-nullable properties and wrong types are `invalid config: ...`), `ToolException` (`ExitCode`, `Message`, `ErrorLine`), `ExitCodes`, `SafeName.IsValid/Description` (all `Swarm.Git` / `Swarm.RunState`).
 - Produces (namespace `Swarm.RunState`):
   - `interface IBranchNaming { string BranchTemplate { get; } string? DefaultKind { get; } IReadOnlyList<string>? AllowedPrefixes { get; } }`
   - `sealed record WorktreeSection : IBranchNaming` (defaults `"task/{id}-{slug}"`, `null`, `null`); `sealed record EpicSection : IBranchNaming` (defaults `"epic/{id}-{slug}"`, `null`, `null`).
@@ -412,33 +415,85 @@ public static partial class BranchTemplate
 }
 ```
 
-- [ ] **Step 4: Add the section properties** (append inside `SwarmConfig` in `src/Swarm.RunState/SwarmConfig.cs`, after `KeepRuns`)
+- [ ] **Step 4: Add the section properties** (in `src/Swarm.RunState/SwarmConfig.cs`, inside `SwarmConfig`, between Plan B's `Squash` property and the `[JsonIgnore] EpicBranch` property)
+
+Old:
 
 ```csharp
+    /// <summary>Gets the squash lander settings.</summary>
+    public SquashConfig Squash { get; init; } = new();
+
+    /// <summary>Gets the epic branch name.</summary>
+```
+
+New:
+
+```csharp
+    /// <summary>Gets the squash lander settings.</summary>
+    public SquashConfig Squash { get; init; } = new();
+
     /// <summary>Gets the <c>worktree</c> tool section (task branch naming; Plan C).</summary>
     public WorktreeSection Worktree { get; init; } = new();
 
     /// <summary>Gets the <c>epicTool</c> section (epic branch naming; Plan C).</summary>
     public EpicSection EpicTool { get; init; } = new();
+
+    /// <summary>Gets the epic branch name.</summary>
 ```
 
-- [ ] **Step 5: Validate them** (in `ConfigLoader.Check`, immediately before `return e;`)
+- [ ] **Step 5: Validate them** (in `ConfigLoader.Check`, after Plan B's squash line, immediately before `return e;`)
+
+Old:
 
 ```csharp
-        e.AddRange(BranchTemplate.Check(c.Worktree, "worktree"));
-        e.AddRange(BranchTemplate.Check(c.EpicTool, "epicTool"));
+        e.AddRange(SquashConfig.Check(c.Squash));
+
+        return e;
 ```
 
-- [ ] **Step 6: Run to verify pass** (including Plan A's config tests: nothing they pin changes)
+New:
 
-Run: `cd <repo-root> && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter "FullyQualifiedName~BranchTemplateTests|FullyQualifiedName~BranchSectionConfigTests|FullyQualifiedName~ConfigLoaderTests"`
-Expected: all PASS.
+```csharp
+        e.AddRange(SquashConfig.Check(c.Squash));
+        e.AddRange(BranchTemplate.Check(c.Worktree, "worktree"));
+        e.AddRange(BranchTemplate.Check(c.EpicTool, "epicTool"));
 
-- [ ] **Step 7: Commit**
+        return e;
+```
+
+- [ ] **Step 6: Run to verify pass** (including the existing config tests: nothing they pin changes; `TestConfig.Write` serialises the whole `SwarmConfig`, so every CLI test now also round-trips the two new sections with their defaults)
+
+Run: `cd <repo-root> && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter "FullyQualifiedName~BranchTemplateTests|FullyQualifiedName~BranchSectionConfigTests|FullyQualifiedName~ConfigLoaderTests|FullyQualifiedName~SquashConfigTests|FullyQualifiedName~SquashCliTests"`
+Expected: all PASS (84 tests: 29 new, plus the existing 24 `ConfigLoaderTests`, 13 `SquashConfigTests` and 18 `SquashCliTests`).
+
+- [ ] **Step 7: Bump and re-pack the three existing tools** (C2: their strict loaders reject `worktree`/`epicTool`)
+
+Change only `<Version>`: `src/Swarm.TestGate.Cli/Swarm.TestGate.Cli.csproj` `0.1.1` -> `0.1.2`; `src/Swarm.Batch.Cli/Swarm.Batch.Cli.csproj` `0.2.0` -> `0.2.1`; `src/Swarm.Squash.Cli/Swarm.Squash.Cli.csproj` `0.1.0` -> `0.1.1`. Then:
 
 ```bash
-git add src tests
-git commit -m "Add worktree and epicTool config sections with branch templates" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+cd <repo-root>
+dotnet pack src/Swarm.TestGate.Cli -c Release -o .docs/feed -warnaserror
+dotnet pack src/Swarm.Batch.Cli -c Release -o .docs/feed -warnaserror
+dotnet pack src/Swarm.Squash.Cli -c Release -o .docs/feed -warnaserror
+```
+
+Expected: `Successfully created package` for `Swarm.TestGate.0.1.2.nupkg`, `Swarm.Batch.0.2.1.nupkg` and `Swarm.Squash.0.1.1.nupkg` (each also prints the known NU5039 missing-readme message).
+
+Docs, exact edits:
+- `docs/batch-tools.md` line 16: ``- `Swarm.TestGate` is version `0.1.1`; `Swarm.Batch` is `0.2.0` (squash became the default lander).`` -> ``- `Swarm.TestGate` is version `0.1.2`; `Swarm.Batch` is `0.2.1` (0.2.0 made squash the default lander; 0.1.2/0.2.1 only accept the `worktree` and `epicTool` config sections of the worktree and epic tools).``; lines 20-21: `Swarm.TestGate@0.1.1` -> `Swarm.TestGate@0.1.2` and `Swarm.Batch@0.2.0` -> `Swarm.Batch@0.2.1`.
+- `docs/batch-tools.md` `## Configuration` table: after the `squash` row add this row (the link target is written in Task 6; the sweeper runs in Task 10):
+
+  ```text
+  | `worktree` / `epicTool` | see [worktree-epic-tools.md#branch-naming](worktree-epic-tools.md#branch-naming) | objects (`branchTemplate`, `defaultKind`, `allowedPrefixes`); read by the `worktree` and `epic` tools only | none |
+  ```
+
+- `docs/squash-tool.md` line 16: ``- Versions as built: `Swarm.Squash` 0.1.0, `Swarm.Batch` 0.2.0, `Swarm.TestGate` 0.1.1.`` -> ``- Versions as built: `Swarm.Squash` 0.1.1, `Swarm.Batch` 0.2.1, `Swarm.TestGate` 0.1.2 (bumped together when the `worktree` and `epicTool` config sections were added).``. Leave the historical run records (0.1.0/0.2.0) unchanged.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src tests docs/batch-tools.md docs/squash-tool.md
+git commit -m "Add worktree and epicTool config sections with branch templates; bump testgate, batch and squash" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ### Task 2: Scaffold `Swarm.Delivery` and the two CLIs; worktree list parser, branch metadata, epic records
@@ -446,11 +501,11 @@ git commit -m "Add worktree and epicTool config sections with branch templates" 
 **Files:**
 - Create: `src/Swarm.Delivery/Swarm.Delivery.csproj`, `src/Swarm.Delivery/WorktreeList.cs`, `src/Swarm.Delivery/BranchMeta.cs`, `src/Swarm.Delivery/EpicStore.cs`
 - Create: `src/Swarm.Worktree.Cli/Swarm.Worktree.Cli.csproj`, `src/Swarm.Worktree.Cli/Program.cs`, `src/Swarm.Epic.Cli/Swarm.Epic.Cli.csproj`, `src/Swarm.Epic.Cli/Program.cs`
-- Modify: `src/Swarm.sln`, `tests/Swarm.Tools.Tests/Swarm.Tools.Tests.csproj` (three project references)
+- Modify: `src/Swarm.sln`, `tests/Swarm.Tools.Tests/Swarm.Tools.Tests.csproj` (three project references); `tests/Swarm.Tools.Tests/Support/SquashFixture.cs`, `tests/Swarm.Tools.Tests/Squashing/SquashLanderTests.cs`, `SquashLanderEdgeTests.cs`, `TestedChainTests.cs` (rename `SquashFixture.Worktree` to `IntegrationFor`; see Step 1)
 - Test: `tests/Swarm.Tools.Tests/Delivery/WorktreeListTests.cs`, `tests/Swarm.Tools.Tests/Delivery/BranchMetaTests.cs`, `tests/Swarm.Tools.Tests/Delivery/EpicStoreTests.cs`
 
 **Interfaces:**
-- Consumes: `GitRunner.Run/Try/Lines`, `ToolException`, `ExitCodes`, `SafeName` (Plan A Tasks 1, 3); `StateLayout` (Plan A Task 4); `SwarmJson.WriteFile/Read` (Plan A Task 6); `TempRepo`, `TempDir` (Plan A Task 2).
+- Consumes: `GitRunner(string workingDirectory)`, `GitRunner.Run(params string[]) -> string` (trimmed stdout; non-zero exit is `ToolException(Environment)`), `GitRunner.Try(params string[]) -> ProcessResult(int ExitCode, string StdOut, string StdErr, bool Killed)`, `GitRunner.Lines(params string[])`, `TextLines.Split`, `ToolException(int exitCode, string message, string? hint = null)`, `ExitCodes`, `SafeName` (`Swarm.Git`); `StateLayout(string Root)` (`Swarm.RunState`); `SwarmJson.WriteFile<T>(path, value)` (atomic, LF) and `SwarmJson.Read<T>(path)` (throws `JsonException`, or `InvalidDataException` for JSON `null`); test fixtures `TempRepo.Create()`, `repo.Git(...)`, `repo.Sandbox`, `repo.Root`, `repo.Epic(from = "main", name = "epic/E1")`, `repo.Branch(name, from, files)`, `repo.Sha(rev)`, `TempDir.Dir` (`tests/Swarm.Tools.Tests/Support`).
 - Produces (namespace `Swarm.Delivery`):
   - `sealed record GitWorktree(string Path, string? Head, string? Branch, bool Detached, bool Locked, string? LockReason, bool Prunable)` (`Branch` is the short name, without `refs/heads/`; `Path` is normalised with `Path.GetFullPath`).
   - `static class WorktreeList { static IReadOnlyList<GitWorktree> Parse(IEnumerable<string> porcelainLines); static IReadOnlyList<GitWorktree> Read(GitRunner git); static GitWorktree? CheckedOut(GitRunner git, string branch); static bool SamePath(string a, string b); }`
@@ -486,7 +541,7 @@ git commit -m "Add worktree and epicTool config sections with branch templates" 
     <ToolCommandName>worktree</ToolCommandName>
     <PackageId>Swarm.Worktree</PackageId>
     <Version>0.1.0</Version>
-    <Description>NOT REAL placeholder package id (unclaimed on nuget.org). Per-task git worktrees from an epic branch for agent swarms.</Description>
+    <Description>NOT REAL placeholder package id (unclaimed on nuget.org; dependency-confusion risk). Per-task git worktrees from an epic branch for agent swarms.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Swarm.Git\Swarm.Git.csproj" />
@@ -496,7 +551,7 @@ git commit -m "Add worktree and epicTool config sections with branch templates" 
 </Project>
 ```
 
-`src/Swarm.Epic.Cli/Swarm.Epic.Cli.csproj`: identical except `<ToolCommandName>epic</ToolCommandName>`, `<PackageId>Swarm.Epic</PackageId>` and `<Description>NOT REAL placeholder package id (unclaimed on nuget.org). Open, report and close epic branches with --no-ff merges for agent swarms.</Description>`.
+`src/Swarm.Epic.Cli/Swarm.Epic.Cli.csproj`: identical except `<ToolCommandName>epic</ToolCommandName>`, `<PackageId>Swarm.Epic</PackageId>` and `<Description>NOT REAL placeholder package id (unclaimed on nuget.org; dependency-confusion risk). Open, report and close epic branches with --no-ff merges for agent swarms.</Description>` (the wording follows `Swarm.Squash.Cli.csproj`).
 
 Placeholder entry points (replaced in Tasks 6 and 10): `src/Swarm.Worktree.Cli/Program.cs` below, and `src/Swarm.Epic.Cli/Program.cs` with the namespace `Swarm.Epic.Cli`:
 
@@ -513,7 +568,7 @@ public static class Program
 }
 ```
 
-Add to the test csproj's project-reference `ItemGroup`:
+Add to the test csproj's project-reference `ItemGroup`, after the existing `Swarm.Squash.Cli` reference and before the `Swarm.FakeSuite` reference:
 
 ```xml
     <ProjectReference Include="..\..\src\Swarm.Delivery\Swarm.Delivery.csproj" />
@@ -521,7 +576,17 @@ Add to the test csproj's project-reference `ItemGroup`:
     <ProjectReference Include="..\..\src\Swarm.Epic.Cli\Swarm.Epic.Cli.csproj" />
 ```
 
-Both CLI assemblies define `Program`, as Plan A's two CLIs already do. Tests alias them (`using WorktreeProgram = Swarm.Worktree.Cli.Program;`).
+Both CLI assemblies define `Program`, as the three existing CLIs (`Swarm.TestGate.Cli`, `Swarm.Batch.Cli`, `Swarm.Squash.Cli`) already do. Tests alias them the same way (`using WorktreeProgram = Swarm.Worktree.Cli.Program;`, like `using SquashProgram = Swarm.Squash.Cli.Program;`).
+
+**Name clash to fix in the same step.** The new namespace `Swarm.Worktree` (from `Swarm.Worktree.Cli`) makes the simple name `Worktree` bind to that namespace inside every `Swarm.*` namespace, before `using static` members are considered. Plan B's tests call `SquashFixture.Worktree(repo)` through `using static Swarm.Tools.Tests.Support.SquashFixture;`, so referencing the new CLI breaks them with 33 `CS0118: 'Swarm.Worktree' is a namespace but is used like a variable` errors (seen in the scratch build). Rename the fixture method to `IntegrationFor` (declaration and every call; `IntegrationWorktree` itself is a type and is unaffected):
+
+```bash
+cd <repo-root>/tests/Swarm.Tools.Tests
+sed -i -E 's/\bWorktree\(repo\)/IntegrationFor(repo)/g; s/public static IntegrationWorktree Worktree\(TempRepo repo\)/public static IntegrationWorktree IntegrationFor(TempRepo repo)/' Support/SquashFixture.cs Squashing/SquashLanderTests.cs Squashing/SquashLanderEdgeTests.cs Squashing/TestedChainTests.cs
+grep -rn "\bWorktree(" --include=*.cs . | grep -v "IntegrationWorktree("   # expect no output
+```
+
+`Swarm.Epic` (from `Swarm.Epic.Cli`) has the same effect on a simple name `Epic`; no existing code uses one outside a type that declares its own `Epic` member (the tests' `const string Epic` fields and `TempRepo.Epic(...)` calls are member lookups and are unaffected). New code must not rely on a bare `Worktree` or `Epic` resolving to anything but these namespaces.
 
 ```bash
 cd <repo-root>/src
@@ -957,7 +1022,7 @@ public sealed class EpicStore(StateLayout state)
 - [ ] **Step 7: Run to verify pass**
 
 Run: `cd <repo-root> && dotnet build src/Swarm.sln -warnaserror && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter "FullyQualifiedName~WorktreeListTests|FullyQualifiedName~BranchMetaTests|FullyQualifiedName~EpicStoreTests"`
-Expected: 0 warnings; all PASS.
+Expected: 0 warnings (after the `SquashFixture` rename); all PASS (10 tests).
 
 - [ ] **Step 8: Commit**
 
@@ -973,7 +1038,7 @@ git commit -m "Scaffold Swarm.Delivery and worktree/epic CLIs; worktree list, br
 - Test: `tests/Swarm.Tools.Tests/Delivery/RunHistoryTests.cs`, `tests/Swarm.Tools.Tests/Delivery/MergeCheckTests.cs`
 
 **Interfaces:**
-- Consumes: `StateLayout`, `RunDirectories.SummaryFileName`, `SwarmJson`, `JsonlFile`, `ReturnLedger.ReadLatest/New`, `BatchSummary`, `LandedRecord`, `ReturnedEntry`, `FinalState`, `ReturnKind`, `ReturnStage`, `RunEvent`, `EventTypes` (Plan A Task 6); `GitRunner`, `TextLines` (Plan A Tasks 1, 3); `TempRepo`, `TempDir` (Plan A Task 2).
+- Consumes (all as built in `Swarm.RunState` / `Swarm.Git`): `StateLayout.RunsDir` (`<state>/runs`; with the default `stateDir` `.docs/runs` the run folders are at `.docs/runs/runs/<run id>/`, the documented layout) and `StateLayout.RunDir(runId)`; `RunDirectories.SummaryFileName` (`summary.json`; a run folder is **finished iff that file exists**; batch writes it at the end of every run that got as far as creating its folder, including failed runs, and pre-run failures create no folder); `SwarmJson.Read/WriteFile`; `JsonlFile.Append/ReadAll<T>` (missing file = empty; malformed lines skipped); `ReturnLedger.ReadLatest(path)` (last record per task) and `ReturnLedger.New(taskId, branch, kind, stage, batch, reason)`; `BatchSummary` (30 positional fields in this order: `SchemaVersion, RunId, Epic, EpicBranch, Mode, Lander, ExitCode, Note, Tasks, TasksLanded, Returned, RebasedAndLanded, NeedsWorker, RejectedRed, BadInput, Unprocessed, FullSuiteRuns, BisectRuns, InferredRedSkipped, Batches, SizeTrace, WallSeconds, WaitMs, RunMs, Suites, Landed, BatchLog, DerivedTouches, ReturnedFile, EventsFile`); `LandedRecord(string Id, int Batch, string Commit, string Branch)` (`Branch` is the rebased copy `rebased/<epic>/<task>` for a task landed through its copy); `ReturnedEntry` (16 fields: `SchemaVersion, Utc, RunId, Task, Branch, Kind, Stage, Batch, ConflictingWith, Files, Reason, GitOutput, Rebase, RebasedBranch, RebaseOutput, Final`); `FinalState`, `ReturnKind`, `ReturnStage`; `RunEvent(int SchemaVersion, DateTime Utc, string RunId, string Type, object? Data)` and `EventTypes.RunStart` (batch writes `run-start` with data `{ tasks, epic, epicBranch, mode, lander }`; `Data` reads back as a `JsonElement`); `GitRunner`, `GitRunner.HeadsRef`, `TextLines`; fixtures `TempRepo`, `TempDir`.
 - Produces (namespace `Swarm.Delivery`):
   - `static class TaskStates { const string Landed = "landed"; const string Returned = "returned"; const string Unprocessed = "unprocessed"; }`
   - `sealed record RunRecord(string RunId, DateTime StartedUtc, string? EpicBranch, BatchSummary? Summary, IReadOnlyDictionary<string, ReturnedEntry> Returned)` with `bool Finished`.
@@ -1003,7 +1068,8 @@ public static class RunStateFixture
         Directory.CreateDirectory(Path.Combine(dir, "logs"));
         var events = Path.Combine(dir, "events.jsonl");
         var returnedFile = Path.Combine(dir, "returned.jsonl");
-        JsonlFile.Append(events, new RunEvent(1, startedUtc, runId, EventTypes.RunStart, new { tasks = landed.Count + returned.Count, epicBranch }));
+        // The same run-start payload shape as BatchEngine.Run.
+        JsonlFile.Append(events, new RunEvent(1, startedUtc, runId, EventTypes.RunStart, new { tasks = landed.Count + returned.Count, epic = "E1", epicBranch, mode = "batched", lander = "squash" }));
         foreach (var r in returned)
         {
             JsonlFile.Append(returnedFile, r with { RunId = runId, Utc = startedUtc });
@@ -1014,7 +1080,7 @@ public static class RunStateFixture
             unprocessed ??= [];
             var exit = exitCode >= 0 ? exitCode : returned.Count + unprocessed.Count == 0 ? 0 : 1;
             var summary = new BatchSummary(
-                1, runId, "E1", epicBranch, "batched", "fast-forward", exit, null,
+                1, runId, "E1", epicBranch, "batched", "squash", exit, null,
                 landed.Count + returned.Count + unprocessed.Count, landed.Count, returned.Count, 0, 0, 0, 0, unprocessed,
                 1, 0, 0, 1, [4], 1.0, 0, 0, [], landed, [], new Dictionary<string, IReadOnlyList<string>>(), returnedFile, events);
             SwarmJson.WriteFile(Path.Combine(dir, RunDirectories.SummaryFileName), summary);
@@ -1383,8 +1449,8 @@ public static class MergeCheck
             return MergeVia.Ledger;
         }
 
-        var b = "refs/heads/" + branch;
-        var t = "refs/heads/" + target;
+        var b = GitRunner.HeadsRef(branch);
+        var t = GitRunner.HeadsRef(target);
         if (git.Try("merge-base", "--is-ancestor", b, t).ExitCode == 0)
         {
             return MergeVia.Ancestor;
@@ -1402,7 +1468,7 @@ public static class MergeCheck
 - [ ] **Step 6: Run to verify pass**
 
 Run: `cd <repo-root> && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter "FullyQualifiedName~RunHistoryTests|FullyQualifiedName~MergeCheckTests"`
-Expected: all PASS.
+Expected: all PASS (12 tests).
 
 - [ ] **Step 7: Commit**
 
@@ -1418,7 +1484,7 @@ git commit -m "Read batch run state and detect merged, squashed or ledger-landed
 - Test: `tests/Swarm.Tools.Tests/Delivery/WorktreeManagerTests.cs`
 
 **Interfaces:**
-- Consumes: `RepoPaths`, `GitRunner`, `ToolException`, `ExitCodes`, `TextLines` (Plan A); `StatePaths.Resolve/ResolveWorktreeRoot/Guard`, `StateLayout`, `SwarmConfig` (Plan A Tasks 4-5); `BranchTemplate.Render`, `SwarmConfig.Worktree` (Task 1); `WorktreeList`, `GitWorktree`, `BranchMeta`, `BranchMetaStore` (Task 2); `RunHistory`, `MergeCheck` (Task 3); `TempRepo`, `TestConfig` (Plan A).
+- Consumes: `RepoPaths(WorktreeRoot, MainWorktreeRoot, CommonGitDir)`, `RepoLocator.Locate(dir)`, `GitRunner` (`RefExists(fullRef)`, `RevParse(rev)`, `At(dir)`, `Lines`, static `HeadsRef(branch)`), `ToolException`, `ExitCodes`, `TextLines` (`Swarm.Git`); `StatePaths.Resolve(RepoPaths, string)`, `StatePaths.ResolveWorktreeRoot(RepoPaths, string?)` (default `<main parent>/<repo>-wt`), `StatePaths.Guard(string fullPath, string what)` (over 200 chars is `ToolException(Usage)`), `StateLayout`, `SwarmConfig` (`Swarm.RunState`); `BranchTemplate.Render`, `SwarmConfig.Worktree` (Task 1); `WorktreeList`, `GitWorktree`, `BranchMeta`, `BranchMetaStore` (Task 2); `RunHistory`, `MergeCheck` (Task 3); `TempRepo` (`WorktreeRoot` = `<sandbox>/wt`, `StateDir` = `<sandbox>/state`), `TestConfig.For(repo)` (sets `StateDir` and `WorktreeRoot` to the sandbox) (test support). Batch's own integration worktree `<worktreeRoot>/int-<batch epic>` lives in the same root; it is detached and has no `swarm-*` metadata, so it is never managed.
 - Produces (namespace `Swarm.Delivery`):
   - `sealed record CreateRequest(string Ticket, string Slug, string BaseBranch, string? Kind)`.
   - `sealed record WorktreeCreateResult(int SchemaVersion, bool Created, string Path, string Branch, string Ticket, string Base, string Head, IReadOnlyList<string> Warnings)` (stdout of `worktree create`).
@@ -1736,7 +1802,7 @@ public sealed class WorktreeManager
         }
 
         var path = PathFor(request.Ticket);
-        if (!Git.RefExists("refs/heads/" + request.BaseBranch))
+        if (!Git.RefExists(GitRunner.HeadsRef(request.BaseBranch)))
         {
             throw new ToolException(ExitCodes.BadInput, $"base branch '{request.BaseBranch}' not found", "open the epic first: epic open <id> <slug>");
         }
@@ -1750,7 +1816,7 @@ public sealed class WorktreeManager
                 : throw new ToolException(ExitCodes.BadInput, $"branch '{branch}' is already checked out at '{existing.Path}' (base '{meta?.Base ?? "unknown"}')", "use another ticket or slug");
         }
 
-        if (Git.RefExists("refs/heads/" + branch))
+        if (Git.RefExists(GitRunner.HeadsRef(branch)))
         {
             throw new ToolException(ExitCodes.BadInput, $"branch '{branch}' already exists without a worktree", "delete it or use another slug");
         }
@@ -1777,7 +1843,7 @@ public sealed class WorktreeManager
         }
 
         // Start from the base's sha (not its name) so the fork point recorded below is exactly what was checked out.
-        var forkPoint = Git.RevParse("refs/heads/" + request.BaseBranch);
+        var forkPoint = Git.RevParse(GitRunner.HeadsRef(request.BaseBranch));
         Directory.CreateDirectory(Root);
         Git.Run("worktree", "add", "-q", "-b", branch, path, forkPoint);
         BranchMetaStore.Write(Git, new BranchMeta(branch, request.Ticket, request.BaseBranch, forkPoint));
@@ -1809,9 +1875,9 @@ public sealed class WorktreeManager
                 continue;
             }
 
-            var baseExists = Git.RefExists("refs/heads/" + meta.Base);
+            var baseExists = Git.RefExists(GitRunner.HeadsRef(meta.Base));
             var empty = string.Equals(w.Head, meta.ForkPoint, StringComparison.OrdinalIgnoreCase);
-            var ahead = int.Parse(Git.Run("rev-list", "--count", $"{meta.ForkPoint}..refs/heads/{w.Branch}"), CultureInfo.InvariantCulture);
+            var ahead = int.Parse(Git.Run("rev-list", "--count", $"{meta.ForkPoint}..{GitRunner.HeadsRef(w.Branch!)}"), CultureInfo.InvariantCulture);
             var via = empty ? null : MergeCheck.LandedVia(Git, w.Branch!, baseExists ? meta.Base : config.BaseBranch, ledger);
             entries.Add(new WorktreeEntry(w.Path, w.Branch!, meta.Ticket, meta.Base, baseExists, w.Head, w.Locked, w.LockReason, missing, dirty, empty, ahead, via, true));
         }
@@ -1833,7 +1899,7 @@ public sealed class WorktreeManager
 - [ ] **Step 4: Run to verify pass**
 
 Run: `cd <repo-root> && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter FullyQualifiedName~WorktreeManagerTests`
-Expected: all PASS.
+Expected: all PASS (14 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1849,7 +1915,7 @@ git commit -m "Add worktree manager: create from epic branch and list with merge
 - Test: `tests/Swarm.Tools.Tests/Delivery/PrunerTests.cs`
 
 **Interfaces:**
-- Consumes: `WorktreeManager.List/Git/Create`, `WorktreeEntry`, `CreateRequest` (Task 4); `MergeVia` (Task 3); `TextLines`, `SwarmJson` (Plan A).
+- Consumes: `WorktreeManager.List/Git/Create`, `WorktreeEntry`, `CreateRequest` (Task 4); `MergeVia` (Task 3); `ProcessResult(int ExitCode, string StdOut, string StdErr, bool Killed)`, `TextLines.OneLine`, `FileTree.DeleteTree` (tests), `RepoLocator.Locate` (`Swarm.Git`); `SwarmJson` (`Swarm.RunState`).
 - Produces (namespace `Swarm.Delivery`):
   - `static class PruneActions { const string Remove = "remove"; const string PruneMetadata = "prune-metadata"; const string Keep = "keep"; }`
   - `sealed record PruneDecision(string Action, string Reason, bool DeleteBranch)`.
@@ -2032,6 +2098,10 @@ public class PrunerTests
         Assert.False(failed.BranchDeleted);
         Assert.NotEmpty(repo.Git("branch", "--list", held.Branch));
         Assert.False(Directory.Exists(free.Path));
+
+        // C6, observed with git 2.54: the failed remove already dropped the registration; the directory stays behind.
+        Assert.True(Directory.Exists(held.Path));
+        Assert.Empty(m.List());
     }
 }
 ```
@@ -2185,7 +2255,7 @@ public sealed class Pruner(WorktreeManager manager)
 - [ ] **Step 4: Run to verify pass**
 
 Run: `cd <repo-root> && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter FullyQualifiedName~PrunerTests`
-Expected: all PASS (`HeldFile_...` returns early off Windows).
+Expected: all PASS (10 tests; `HeldFile_...` returns early off Windows).
 
 - [ ] **Step 5: Commit**
 
@@ -2202,7 +2272,7 @@ git commit -m "Add worktree pruner with dry-run, force and locked/held-file safe
 - Test: `tests/Swarm.Tools.Tests/Cli/WorktreeCliTests.cs`
 
 **Interfaces:**
-- Consumes: `CommonOptions`, `CliHost`, `ToolContext`, `ConfigOverrides.None`, `Progress`, `SwarmJson`, `StateLayout` (Plan A Tasks 5-8); `EpicStore`, `EpicStates` (Task 2); `WorktreeManager`, `CreateRequest`, `WorktreeListResult` (Task 4); `Pruner`, `PruneReport` (Task 5).
+- Consumes: `Swarm.RunState.Cli`: `CommonOptions` (`AddTo(Command)` adds `--config`, `--state`, `--slots`, `--max-wait`, `--verbosity`; `Resolve(ParseResult, string currentDirectory, ConfigOverrides extra) -> ToolContext`), `ToolContext(RepoPaths Repo, SwarmConfig Config, StateLayout State, Verbosity Verbosity)`, `CliHost.Invoke(RootCommand, string[], TextWriter, TextWriter)` (parse errors are one `error: ... (see --help)` line and exit 2; `ToolException`s go through `ToolErrors.Handle`); `ConfigOverrides.None`, `Progress(TextWriter, Verbosity).Warn`, `SwarmJson.Line`, `StateLayout` (`Swarm.RunState`); `ToolException.Format(message, hint)` (`Swarm.Git`); `EpicStore`, `EpicStates` (Task 2); `WorktreeManager`, `CreateRequest`, `WorktreeListResult` (Task 4); `Pruner`, `PruneReport` (Task 5); test helper `JsonOutput.SingleJsonLine(stdout)` (`tests/Swarm.Tools.Tests/Support/JsonOutput.cs`). No `CtrlCScope`: these commands run a few short git calls and need no cancellation.
 - Produces:
   - `worktree create <ticket> <slug> (--epic <id> | --base <branch>) [--kind <k>] [common]` -> one `WorktreeCreateResult` line; warnings go to stderr as `warning: ...`; exit 0. `--epic` resolves the branch from `<state>/epics/<id>.json` and refuses a closed epic (3).
   - `worktree list [--epic <id> | --base <branch>] [--all] [common]` -> one `WorktreeListResult` line; exit 0.
@@ -2214,11 +2284,11 @@ git commit -m "Add worktree pruner with dry-run, force and locked/held-file safe
 - [ ] **Step 1: Write the failing tests** (`tests/Swarm.Tools.Tests/Cli/WorktreeCliTests.cs`)
 
 ```csharp
-using System.Text.Json;
 using Swarm.Delivery;
 using Swarm.Git;
 using Swarm.RunState;
 using Swarm.Tools.Tests.Support;
+using static Swarm.Tools.Tests.Support.JsonOutput;
 using WorktreeProgram = Swarm.Worktree.Cli.Program;
 
 namespace Swarm.Tools.Tests.Cli;
@@ -2234,9 +2304,6 @@ public class WorktreeCliTests
         var code = WorktreeProgram.Run(args, stdout, stderr, repo.Root);
         return (code, stdout.ToString(), stderr.ToString());
     }
-
-    static JsonElement SingleJsonLine(string stdout) =>
-        JsonDocument.Parse(Assert.Single(stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))).RootElement;
 
     static (TempRepo Repo, string Config) Setup(string state = EpicStates.Open)
     {
@@ -2478,7 +2545,7 @@ internal static class BaseOption
 - [ ] **Step 4: Run to verify pass**
 
 Run: `cd <repo-root> && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter FullyQualifiedName~WorktreeCliTests`
-Expected: all PASS.
+Expected: all PASS (11 tests).
 
 - [ ] **Step 5: Verify the package builds**
 
@@ -2486,10 +2553,10 @@ Run: `cd <repo-root> && dotnet pack src/Swarm.Worktree.Cli -c Release -o .docs/f
 Expected: `Successfully created package '...Swarm.Worktree.0.1.0.nupkg'`, 0 warnings. The `dnx` smoke test for both tools is in Task 10.
 
 - [ ] **Step 6: Write the worktree half of `docs/worktree-epic-tools.md`**. Use front-matter `created: <today>`, `updated: <today>`, `status: current`, and state only behaviour the tests pin:
-  1. **Requirement and NOT REAL warning:** `.NET 10+`; `Swarm.Worktree` and `Swarm.Epic` are placeholder ids that are unclaimed on nuget.org (dependency-confusion risk), so run them only with `--add-source <your feed>`; link `dnx-invocation-notes.md`; both tools share `.swarm/batch.json` with testgate and batch (link `batch-tools.md#configuration`), so re-pack every tool after a config schema change.
+  1. **Requirement and NOT REAL warning:** `.NET 10+`; `Swarm.Worktree` and `Swarm.Epic` are placeholder ids that are unclaimed on nuget.org (dependency-confusion risk), so run them only with `--add-source <your feed>`; link `dnx-invocation-notes.md`; both tools share `.swarm/batch.json` with testgate, batch and squash (link `batch-tools.md#configuration` and `squash-tool.md#configuration`), and every tool's loader rejects unknown keys, so a config that uses `worktree`/`epicTool` needs `Swarm.TestGate` >= 0.1.2, `Swarm.Batch` >= 0.2.1 and `Swarm.Squash` >= 0.1.1; re-pack every tool after a config schema change.
   2. **Branch naming** (`## Branch naming`): the `worktree` and `epicTool` sections (C3), why the second is not called `epic`, the placeholders, the example-org example from C3 verbatim, and the rule that `feat/`, `fix/` and other short forms are rejected because example-org pipelines match only `feature/` and `bugfix/`. Include every error message from `BranchTemplateTests` and `BranchSectionConfigTests`.
   3. **worktree**: the usage lines from this task's Interfaces; the path `<worktreeRoot>/t-<ticket>`; why the tool, not `isolation: worktree`, creates task worktrees (built-in isolation branches from the default branch, workflow section 2); idempotent create; branch metadata in git config (C4); the MAX_PATH warning and 200-char guard.
-  4. **Prune rules** (`## Prune rules`): the decision table from `Pruner.Decide` in order; the merged checks (C5, including the git 2.38 note); `--dry-run`; `--force`; that locked worktrees are never removed; the repository-wide effect of `git worktree prune`; per-item failures and exit 4.
+  4. **Prune rules** (`## Prune rules`): the decision table from `Pruner.Decide` in order; the merged checks (C5, including the git 2.38 note); `--dry-run`; `--force`; that locked worktrees are never removed; the repository-wide effect of `git worktree prune`; per-item failures and exit 4, including the C6 observation that a removal failed on a held file leaves the directory behind unregistered (pinned by `PrunerTests.HeldFile_FailsItemKeepsBranchContinues`) and what the user does about it; that the merged checks see `squash run` landings only through ancestry or content (C5).
   5. **Exit codes** for `worktree` (C10).
 
 - [ ] **Step 7: Commit**
@@ -2506,7 +2573,7 @@ git commit -m "Add worktree CLI (create, list, prune) and its documentation" -m 
 - Test: `tests/Swarm.Tools.Tests/Delivery/EpicOpenerTests.cs`
 
 **Interfaces:**
-- Consumes: `RepoPaths`, `GitRunner`, `SafeName`, `ToolException` (Plan A); `StatePaths.Resolve`, `StateLayout`, `SwarmConfig.EpicBranchTemplate/BaseBranch/EpicBranch`, `SwarmJson` (Plan A); `BranchTemplate.Render`, `SwarmConfig.EpicTool` (Task 1); `EpicStore`, `EpicRecord`, `EpicStates` (Task 2).
+- Consumes: `RepoPaths`, `GitRunner` (`HeadsRef`, `RefExists`, `RevParse`), `SafeName`, `ToolException` (`Swarm.Git`); `StatePaths.Resolve`, `StateLayout`, `SwarmConfig.EpicBranchTemplate/BaseBranch/Epic`, `SwarmConfig.EpicBranch` (`[JsonIgnore]`, `EpicBranchTemplate.Replace("{epic}", Epic)`), `SwarmJson` (`Swarm.RunState`); `BranchTemplate.Render`, `SwarmConfig.EpicTool` (Task 1); `EpicStore`, `EpicRecord`, `EpicStates` (Task 2). `batch` and `squash run` require the epic branch to exist and to be checked out nowhere (`RepoChecks.EnsureEpic`, exit 3), which is why `open` never checks it out.
 - Produces (namespace `Swarm.Delivery`):
   - `static class EpicNaming { static string? BatchEpicId(SwarmConfig config, string epicBranch); }`. This returns the safe-name value X for which `config with { Epic = X }` gives `EpicBranch == epicBranch`, or null.
   - `sealed record EpicOpenResult(int SchemaVersion, bool Created, string Id, string Slug, string Branch, string BaseBranch, string BaseCommit, string? BatchEpic, IReadOnlyList<string> Warnings)` (stdout of `epic open`).
@@ -2695,7 +2762,7 @@ public sealed class EpicOpener(RepoPaths repo, SwarmConfig config)
         }
 
         var store = new EpicStore(new StateLayout(StatePaths.Resolve(repo, config.StateDir)));
-        var exists = git.RefExists("refs/heads/" + branch);
+        var exists = git.RefExists(GitRunner.HeadsRef(branch));
         if (store.Find(id) is { } record)
         {
             return record.Branch == branch && record.State == EpicStates.Open && exists
@@ -2709,12 +2776,12 @@ public sealed class EpicOpener(RepoPaths repo, SwarmConfig config)
         }
 
         var baseBranch = from ?? config.BaseBranch;
-        if (!git.RefExists("refs/heads/" + baseBranch))
+        if (!git.RefExists(GitRunner.HeadsRef(baseBranch)))
         {
             throw new ToolException(ExitCodes.BadInput, $"base branch '{baseBranch}' not found");
         }
 
-        var baseCommit = git.RevParse("refs/heads/" + baseBranch);
+        var baseCommit = git.RevParse(GitRunner.HeadsRef(baseBranch));
         git.Run("branch", branch, baseCommit);
         var created = new EpicRecord(SwarmJson.SchemaVersion, id, slug, branch, baseBranch, baseCommit, DateTime.UtcNow, EpicStates.Open, null, null, null);
         store.Save(created);
@@ -2735,7 +2802,7 @@ public sealed class EpicOpener(RepoPaths repo, SwarmConfig config)
 - [ ] **Step 4: Run to verify pass**
 
 Run: `cd <repo-root> && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter FullyQualifiedName~EpicOpenerTests`
-Expected: all PASS.
+Expected: all PASS (13 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2751,11 +2818,12 @@ git commit -m "Add epic open: branch from the active branch, record, batch epic 
 - Test: `tests/Swarm.Tools.Tests/Delivery/EpicAssessorTests.cs`
 
 **Interfaces:**
-- Consumes: `RepoPaths`, `GitRunner`, `ToolException` (Plan A); `SlotSemaphore`, `SlotOptions.From`, `StateLayout.BatchLockDir`, `SwarmJson` (Plan A Tasks 4, 6, 7); `EpicRecord`, `EpicStates`, `WorktreeList` (Task 2); `RunHistory`, `TaskStates`, `TaskOutcome` (Task 3); `WorktreeManager.List/Git/State` (Task 4); `EpicNaming`, `EpicOpener` (Task 7); `RunStateFixture` (Task 3).
+- Consumes: `RepoPaths`, `GitRunner` (`HeadsRef`, `RefExists`, `RevParse`, `At`), `ToolException`, `TextLines.OneLine` (`Swarm.Git`); `SlotSemaphore(string lockDir, SlotOptions options).Status() -> IReadOnlyList<SlotHolder(int Slot, LockInfo? Info, double HeartbeatAgeSec, bool Stale, bool HolderAlive)>` (lock files `slot-<k>.lock`; a holder in this process counts as alive), `SlotOptions.From(SwarmConfig)`, `StateLayout.BatchLockDir(epic)` (`<state>/locks/batch-<epic>`; **shared by `batch run` and `squash run`**, each holding slot 0 for the whole run), `ReturnedEntry`, `ReturnStage`, `SwarmJson` (`Swarm.RunState`); `EpicRecord`, `EpicStates`, `WorktreeList` (Task 2); `RunHistory`, `TaskStates`, `TaskOutcome`, `MergeCheck` (Task 3); `WorktreeManager.List/Git/State` (Task 4); `EpicNaming`, `EpicOpener` (Task 7); `RunStateFixture` (Task 3). Tests also use Plan B's `SquashRunner(ToolContext, Progress).Run(new SquashRunRequest(taskId, branch, ticket, runId))` and `ToolContext` (`Swarm.Squashing`, `Swarm.RunState.Cli`).
 - Produces (namespace `Swarm.Delivery`):
   - `static class BlockerCodes` with the nine codes of C9 as constants: `BatchRunning`, `RunUnfinished`, `TasksReturned`, `WorktreesUnmerged`, `NothingToMerge`, `ActiveDirty`, `ActiveBehindUpstream`, `EpicClosed`, `BranchMissing`.
   - `sealed record EpicBlocker(string Code, string Detail, bool Waivable)`.
-  - `sealed record TaskReturn(string Task, string State, string Branch, string? Final, string? Kind, string RunId, string? Reason)`.
+  - `sealed record TaskReturn(string Task, string State, string Branch, string? Final, string? Kind, string RunId, string? Reason)`. `Reason` is the return record's `Reason`, except for a land-stage return without files, whose real reason batch keeps in `GitOutput` (for example the squash lander's `requireTicket` failure is recorded as `kind: conflict`, `stage: land`, `files: []`, reason `land conflict with the epic tip`): then it is `GitOutput`, one-lined.
+  - Open tasks: every `TaskOutcome.Blocking` outcome of the epic's runs, minus those whose branch exists and `MergeCheck.LandedVia(git, branch, epic.Branch, history.LandedBranches())` reports landed (a task returned by batch and later landed by `squash run`, which writes no run state; C5).
   - `sealed record EpicStatus(int SchemaVersion, string Id, string Slug, string Branch, string State, string Into, string? Tip, int Ahead, int Behind, string? BatchEpic, int Runs, string? LatestRunId, int? LatestRunExitCode, IReadOnlyList<string> LandedTasks, IReadOnlyList<TaskReturn> OpenTasks, int Worktrees, int WorktreesUnmerged, bool BatchRunning, string? Upstream, IReadOnlyList<EpicBlocker> Blockers, bool ReadyToClose)`.
   - `sealed record EpicStatusList(int SchemaVersion, IReadOnlyList<EpicStatus> Epics)` (stdout of `epic status`).
   - `sealed class EpicAssessor(RepoPaths repo, SwarmConfig config) { EpicStatus Assess(EpicRecord epic, string? into = null); }`. `into` defaults to `epic.BaseBranch`; a missing `into` branch gives `ToolException(BadInput)`. `ReadyToClose` is true when there are no blockers. The tool never fetches.
@@ -2766,6 +2834,8 @@ git commit -m "Add epic open: branch from the active branch, record, batch epic 
 using Swarm.Delivery;
 using Swarm.Git;
 using Swarm.RunState;
+using Swarm.RunState.Cli;
+using Swarm.Squashing;
 using Swarm.Tools.Tests.Support;
 
 namespace Swarm.Tools.Tests.Delivery;
@@ -2785,7 +2855,8 @@ public class EpicAssessorTests
             new EpicOpener(Paths, Config).Open("42", "auth", null, null);
             if (withCommit)
             {
-                OnEpic("T1: work\n\nTicket: 9933\nEpic: 42\nBatch: 1", ("t1.txt", "1\n"));
+                // Plan B stamps the batch epic id (42-auth for epic/42-auth with epicBranchTemplate epic/{epic}).
+                OnEpic("9933: work\n\nTicket: 9933\nEpic: 42-auth\nBatch: 1\nSwarm-Run: r0", ("t1.txt", "1\n"));
             }
         }
 
@@ -2844,6 +2915,34 @@ public class EpicAssessorTests
     }
 
     [Fact]
+    public void ReturnedTask_LandedLaterBySquashRun_DoesNotBlock()
+    {
+        using var f = new Fixture();
+        f.Repo.Branch("task/T3", Epic, ("t3.txt", "3\n"));
+        RunStateFixture.WriteRun(f.Repo.StateDir, "r1", T0, Epic, [], [RunStateFixture.Returned("T3", "task/T3", FinalState.NeedsWorker, ReturnKind.Conflict)]);
+        Assert.Equal(BlockerCodes.TasksReturned, Assert.Single(f.Assess().Blockers).Code);
+
+        // A real squash run (Plan B): it writes no run state, so only the merged check can see this landing (C5).
+        var context = new ToolContext(f.Paths, f.Config with { Epic = "42-auth" }, new StateLayout(f.Repo.StateDir), Verbosity.Quiet);
+        var squashed = new SquashRunner(context, new Progress(TextWriter.Null, Verbosity.Quiet)).Run(new SquashRunRequest("T3", "task/T3", null, null));
+        Assert.Equal((ExitCodes.Ok, false), (squashed.ExitCode, squashed.Empty));
+        var s = f.Assess();
+        Assert.Empty(s.OpenTasks);
+        Assert.True(s.ReadyToClose);
+    }
+
+    [Fact]
+    public void LandFailureWithoutFiles_ReportsGitOutputAsReason()
+    {
+        using var f = new Fixture();
+        const string noTicket = "no ticket for task 'T5' (branch 'task/T5'): squash.ticketPattern 'x' matches neither and squash.requireTicket is true; nothing landed from this batch";
+        var entry = RunStateFixture.Returned("T5", "task/T5", FinalState.NeedsWorker, ReturnKind.Conflict)
+            with { Stage = ReturnStage.Land, Reason = "land conflict with the epic tip", GitOutput = noTicket };
+        RunStateFixture.WriteRun(f.Repo.StateDir, "r1", T0, Epic, [], [entry]);
+        Assert.Equal(noTicket, Assert.Single(f.Assess().OpenTasks).Reason);
+    }
+
+    [Fact]
     public void UnprocessedTask_Blocks()
     {
         using var f = new Fixture();
@@ -2880,6 +2979,7 @@ public class EpicAssessorTests
         Assert.True(s.BatchRunning);
         var b = Assert.Single(s.Blockers);
         Assert.Equal((BlockerCodes.BatchRunning, false), (b.Code, b.Waivable));
+        Assert.Contains("a batch or squash run holds epic '42-auth'", b.Detail);
     }
 
     [Fact]
@@ -2973,7 +3073,7 @@ namespace Swarm.Delivery;
 /// <summary>Reasons an epic cannot be closed (<see cref="EpicBlocker.Code"/>).</summary>
 public static class BlockerCodes
 {
-    /// <summary>A batch run currently holds the epic (not waivable).</summary>
+    /// <summary>A batch or squash run holds the per-epic lock they share (not waivable).</summary>
     public const string BatchRunning = "batch-running";
 
     /// <summary>A batch run has no summary: crashed or killed (waivable).</summary>
@@ -3014,7 +3114,7 @@ public sealed record EpicBlocker(string Code, string Detail, bool Waivable);
 /// <param name="Final">The return record's final state.</param>
 /// <param name="Kind">The return record's kind.</param>
 /// <param name="RunId">Run that decided the state.</param>
-/// <param name="Reason">The return reason.</param>
+/// <param name="Reason">The return reason (git's output for a land-stage return without files).</param>
 public sealed record TaskReturn(string Task, string State, string Branch, string? Final, string? Kind, string RunId, string? Reason);
 
 /// <summary>Run state and close readiness of one epic.</summary>
@@ -3035,7 +3135,7 @@ public sealed record TaskReturn(string Task, string State, string Branch, string
 /// <param name="OpenTasks">Tasks returned or unprocessed.</param>
 /// <param name="Worktrees">Managed task worktrees on the epic.</param>
 /// <param name="WorktreesUnmerged">Of those, with unmerged or uncommitted work.</param>
-/// <param name="BatchRunning">True when a live batch run holds the epic.</param>
+/// <param name="BatchRunning">True when a live batch or squash run holds the epic lock.</param>
 /// <param name="Upstream">Active branch's upstream (last fetched), or null.</param>
 /// <param name="Blockers">Reasons it cannot close now.</param>
 /// <param name="ReadyToClose">True when there are no blockers.</param>
@@ -3064,7 +3164,7 @@ public sealed class EpicAssessor(RepoPaths repo, SwarmConfig config)
         var manager = new WorktreeManager(repo, config);
         var git = manager.Git;
         into ??= epic.BaseBranch;
-        if (!git.RefExists("refs/heads/" + into))
+        if (!git.RefExists(GitRunner.HeadsRef(into)))
         {
             throw new ToolException(ExitCodes.BadInput, $"branch '{into}' not found");
         }
@@ -3077,14 +3177,14 @@ public sealed class EpicAssessor(RepoPaths repo, SwarmConfig config)
 
         string? tip = null;
         int ahead = 0, behind = 0;
-        if (!git.RefExists("refs/heads/" + epic.Branch))
+        if (!git.RefExists(GitRunner.HeadsRef(epic.Branch)))
         {
             blockers.Add(new EpicBlocker(BlockerCodes.BranchMissing, $"epic branch '{epic.Branch}' not found", false));
         }
         else
         {
-            tip = git.RevParse("refs/heads/" + epic.Branch);
-            var counts = git.Run("rev-list", "--left-right", "--count", $"refs/heads/{into}...refs/heads/{epic.Branch}").Split((char[])['\t', ' '], StringSplitOptions.RemoveEmptyEntries);
+            tip = git.RevParse(GitRunner.HeadsRef(epic.Branch));
+            var counts = git.Run("rev-list", "--left-right", "--count", $"{GitRunner.HeadsRef(into)}...{GitRunner.HeadsRef(epic.Branch)}").Split((char[])['\t', ' '], StringSplitOptions.RemoveEmptyEntries);
             (behind, ahead) = (int.Parse(counts[0], CultureInfo.InvariantCulture), int.Parse(counts[1], CultureInfo.InvariantCulture));
             if (ahead == 0 && epic.State == EpicStates.Open)
             {
@@ -3097,18 +3197,30 @@ public sealed class EpicAssessor(RepoPaths repo, SwarmConfig config)
             && new SlotSemaphore(manager.State.BatchLockDir(batchEpic), SlotOptions.From(config) with { Slots = 1 }).Status().Any(h => !h.Stale && h.HolderAlive);
         if (running)
         {
-            blockers.Add(new EpicBlocker(BlockerCodes.BatchRunning, $"a batch run holds epic '{batchEpic}'; wait for it to finish", false));
+            blockers.Add(new EpicBlocker(BlockerCodes.BatchRunning, $"a batch or squash run holds epic '{batchEpic}'; wait for it to finish", false));
         }
 
-        var runs = RunHistory.Load(manager.State).ForEpic(epic.Branch);
+        var history = RunHistory.Load(manager.State);
+        var runs = history.ForEpic(epic.Branch);
         var unfinished = runs.Where(r => !r.Finished).Select(r => r.RunId).ToList();
         if (!running && unfinished.Count > 0)
         {
             blockers.Add(new EpicBlocker(BlockerCodes.RunUnfinished, $"batch run(s) without summary.json (crashed or killed): {string.Join(", ", unfinished)}", true));
         }
 
+        // squash run writes no run state (C5): a task batch returned and a human then landed by hand is found on the epic.
+        var ledger = history.LandedBranches();
+        bool LandedSince(TaskOutcome o) =>
+            tip is not null
+            && o.Branch.Length > 0
+            && git.RefExists(GitRunner.HeadsRef(o.Branch))
+            && MergeCheck.LandedVia(git, o.Branch, epic.Branch, ledger) is not null;
+
         var outcomes = RunHistory.Outcomes(runs).Values.ToList();
-        var open = outcomes.Where(o => o.Blocking).Select(o => new TaskReturn(o.Task, o.State, o.Branch, o.LastReturn?.Final, o.LastReturn?.Kind, o.RunId, o.LastReturn?.Reason)).ToList();
+        var open = outcomes
+            .Where(o => o.Blocking && !LandedSince(o))
+            .Select(o => new TaskReturn(o.Task, o.State, o.Branch, o.LastReturn?.Final, o.LastReturn?.Kind, o.RunId, ReasonOf(o.LastReturn)))
+            .ToList();
         if (open.Count > 0)
         {
             var list = string.Join(", ", open.Select(t => $"{t.Task} ({t.Final ?? t.State})"));
@@ -3133,7 +3245,7 @@ public sealed class EpicAssessor(RepoPaths repo, SwarmConfig config)
         var upstream = up.ExitCode == 0 ? up.StdOut.Trim() : null;
         if (upstream is not null)
         {
-            var missing = int.Parse(git.Run("rev-list", "--count", $"refs/heads/{into}..{upstream}"), CultureInfo.InvariantCulture);
+            var missing = int.Parse(git.Run("rev-list", "--count", $"{GitRunner.HeadsRef(into)}..{upstream}"), CultureInfo.InvariantCulture);
             if (missing > 0)
             {
                 blockers.Add(new EpicBlocker(BlockerCodes.ActiveBehindUpstream, $"'{into}' is {missing} commit(s) behind '{upstream}' as last fetched; pull first", false));
@@ -3147,13 +3259,18 @@ public sealed class EpicAssessor(RepoPaths repo, SwarmConfig config)
             outcomes.Where(o => o.State == TaskStates.Landed).Select(o => o.Task).Order(StringComparer.Ordinal).ToList(), open,
             worktrees.Count, unmerged.Count, running, upstream, blockers, blockers.Count == 0);
     }
+
+    // batch records a land failure as "land conflict with the epic tip" with no files and keeps the real reason (for
+    // example the squash lander's requireTicket failure) in GitOutput.
+    static string? ReasonOf(ReturnedEntry? r) =>
+        r is { Stage: ReturnStage.Land, Files.Count: 0, GitOutput.Length: > 0 } ? TextLines.OneLine(r.GitOutput) : r?.Reason;
 }
 ```
 
 - [ ] **Step 4: Run to verify pass**
 
 Run: `cd <repo-root> && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter FullyQualifiedName~EpicAssessorTests`
-Expected: all PASS.
+Expected: all PASS (15 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -3169,22 +3286,26 @@ git commit -m "Add epic assessor: run state, open tasks, worktrees and close blo
 - Test: `tests/Swarm.Tools.Tests/Delivery/MergeMessageTests.cs`, `tests/Swarm.Tools.Tests/Delivery/EpicCloserTests.cs`
 
 **Interfaces:**
-- Consumes: `GitRunner`, `ToolException`, `TextLines`, `FileTree` (Plan A); `StatePaths.Guard`, `SwarmJson` (Plan A); `EpicStore`, `EpicRecord`, `EpicStates`, `WorktreeList` (Task 2); `WorktreeManager.Root/Git/State` (Task 4); `EpicOpener` (Task 7); `EpicAssessor`, `EpicBlocker`, `BlockerCodes` (Task 8); `RunStateFixture` (Task 3).
+- Consumes: `GitRunner` (`HeadsRef`, `At`, `Try`, `Run`, `Lines`, `RevParse`), `ToolException`, `TextLines`, `FileTree.DeleteTree` (`Swarm.Git`); `StatePaths.Guard`, `SwarmJson` (`Swarm.RunState`); `EpicStore`, `EpicRecord`, `EpicStates`, `WorktreeList` (Task 2); `WorktreeManager.Root/Git/State` (Task 4); `EpicNaming.BatchEpicId`, `EpicOpener` (Task 7); `EpicAssessor`, `EpicStatus.BatchEpic`, `EpicBlocker`, `BlockerCodes` (Task 8); `RunStateFixture` (Task 3). Tests also use Plan B's message builder `SquashMessage.Build(SquashConfig, SquashGroup, MessageContext)` with `SquashGroup(string Ticket, IReadOnlyList<LandTask> Tasks, IReadOnlyList<string?> SourceTips, IReadOnlyList<SourceCommit> Commits)`, `SourceCommit(Sha, AuthorName, AuthorEmail, Subject)`, `MessageContext(string Epic, int Batch, string RunId)` (`Swarm.Squashing`) and `LandTask(Id, Branch, DependsOn)` (`Swarm.Batching`).
+- What Plan B writes (source: `src/Swarm.Squashing/SquashMessage.cs`; example in `docs/squash-tool.md#what-lands`): subject from `squash.subjectTemplate`, default `{ticket}: {title}` (so the subject usually **starts with the ticket**); an optional `Squashed commits:` list; then one final trailer paragraph, LF, values one-lined, in this order: `Ticket`, `Epic` (the **batch epic id**, `config.Epic`, e.g. `42-auth` for `epic/42-auth` under `epicBranchTemplate` `epic/{epic}`, never `EpicRecord.Id`), `Batch` (per run, restarting at 1 in every batch run; `0` for a manual `squash run`), `Swarm-Run` (run id), then `Task` (+ `Source-Commit`) per task, then `Co-authored-by`. The fast-forward lander stamps nothing (its per-task merge commits are skipped by `--no-merges`; the task's own commits carry whatever the worker wrote).
 - Produces (namespace `Swarm.Delivery`):
-  - `sealed record TrailerCommit(string Sha, string Subject, IReadOnlyList<string> Tickets, IReadOnlyList<string> Epics, IReadOnlyList<string> Batches)`; `static class TrailerLog { static IReadOnlyList<TrailerCommit> Read(GitRunner git, string fromRef, string toRef); static IReadOnlyList<TrailerCommit> Parse(string logOutput); }` (non-merge commits in `from..to`, oldest first; trailer keys `Ticket`, `Epic` and `Batch` are matched case-insensitively).
-  - `static class MergeMessage { static string Build(EpicRecord epic, string into, IReadOnlyList<TrailerCommit> commits); static IReadOnlyList<string> Tickets(IReadOnlyList<TrailerCommit> commits); }` (LF, no trailing newline).
+  - `sealed record TrailerCommit(string Sha, string Subject, IReadOnlyList<string> Tickets, IReadOnlyList<string> Epics, IReadOnlyList<string> Batches, IReadOnlyList<string> Runs)`; `static class TrailerLog { static IReadOnlyList<TrailerCommit> Read(GitRunner git, string fromRef, string toRef); static IReadOnlyList<TrailerCommit> Parse(string logOutput); }` (non-merge commits in `from..to`, oldest first; trailer keys `Ticket`, `Epic`, `Batch` and `Swarm-Run` are matched case-insensitively).
+  - `static class MergeMessage { const string ManualBatch = "0"; static string Build(EpicRecord epic, string? batchEpic, string into, IReadOnlyList<TrailerCommit> commits); static string Title(TrailerCommit commit); static IReadOnlyList<string> Tickets(IReadOnlyList<TrailerCommit> commits); }` (LF, no trailing newline). A commit belongs to the epic when its `Epic:` value is `epic.Id` **or** `batchEpic` (the value `EpicNaming.BatchEpicId` gives for the epic branch; `EpicCloser` passes `EpicStatus.BatchEpic`). `Title` drops a leading ticket followed by `:`, space or `-` from the subject (the rule of Plan B's `SquashMessage.Title`, which `Swarm.Delivery` cannot reference, C1). Batch `0` renders as `manual`; because batch numbers restart in every run, the header counts distinct `Swarm-Run:` values (`Runs: <n>`) instead of listing batch numbers.
   - `static class CloseResults { const string Merged = "merged"; const string Blocked = "blocked"; const string Conflict = "conflict"; const string DryRun = "dry-run"; }`
   - `sealed record CloseOptions(string? Into = null, bool Force = false, bool DryRun = false, bool DeleteBranch = false)`.
   - `sealed record EpicCloseResult(int SchemaVersion, string Result, string Id, string Branch, string Into, string? MergeCommit, IReadOnlyList<string> Tickets, IReadOnlyList<EpicBlocker> Blockers, IReadOnlyList<EpicBlocker> Waived, IReadOnlyList<string> ConflictFiles, string Message, bool BranchDeleted)` (stdout of `epic close`; `Blockers` are the ones not waived).
-  - `sealed class EpicCloser(RepoPaths repo, SwarmConfig config) { EpicCloseResult Close(string id, CloseOptions options); }`. An unknown epic, an already closed epic or a missing target gives 3; the target branch moving during the close, or a failed fast-forward, gives 4. Blocked, conflict and dry-run outcomes are results, not exceptions.
+  - `sealed class EpicCloser(RepoPaths repo, SwarmConfig config) { EpicCloseResult Close(string id, CloseOptions options); }`. An unknown epic, an already closed epic or a missing target gives 3; the target branch moving during the close (`'<into>' moved during close`), a target ref that cannot be updated although it did not move (`could not move '<into>': <git's reason>`, with a stale-lock hint, as Plan B's `EpicRef.Move` does), or a failed fast-forward, gives 4. Blocked, conflict and dry-run outcomes are results, not exceptions.
 
 - [ ] **Step 1: Write the failing tests**
 
 `tests/Swarm.Tools.Tests/Delivery/MergeMessageTests.cs`:
 
 ```csharp
+using Swarm.Batching;
 using Swarm.Delivery;
 using Swarm.Git;
+using Swarm.RunState;
+using Swarm.Squashing;
 using Swarm.Tools.Tests.Support;
 
 namespace Swarm.Tools.Tests.Delivery;
@@ -3194,38 +3315,53 @@ public class MergeMessageTests
     static readonly EpicRecord Epic = new(1, "42", "auth", "epic/42-auth", "main", new string('0', 40), DateTime.UtcNow, EpicStates.Open, null, null, null);
 
     [Fact]
-    public void Build_ListsTicketsBatchesUntrackedAndForeign()
+    public void Build_ListsTicketsRunsUntrackedAndForeign()
     {
         var commits = new TrailerCommit[]
         {
-            new(new string('a', 40), "Login form", ["9933"], ["42"], ["1"]),
-            new(new string('b', 40), "Token refresh", ["9934"], ["42"], ["2"]),
-            new(new string('c', 40), "batch: merge T9 (task/T9)", [], [], []),
-            new(new string('d', 40), "Stray", ["9999"], ["7"], ["2"]),
+            new(new string('a', 40), "9933: Login form", ["9933"], ["42-auth"], ["1"], ["run-a"]),
+            new(new string('b', 40), "9934: Token refresh", ["9934"], ["42-auth"], ["2"], ["run-a"]),
+            new(new string('c', 40), "batch: merge T9 (task/T9)", [], [], [], []),
+            new(new string('e', 40), "9935 - Hotfix", ["9935"], ["42-auth"], ["0"], ["squash-20261004-090000-000-42-auth"]),
+            new(new string('f', 40), "Older stamp", ["9936"], ["42"], ["1"], ["run-0"]),
+            new(new string('d', 40), "Stray", ["9999"], ["7"], ["2"], ["run-b"]),
         };
         const string expected = """
             Merge epic 42-auth (epic/42-auth) into main
 
-            Epic: 42
-            Tickets: 9933, 9934, 9999
-            Batches: 1, 2
+            Epic: 42 (batch epic 42-auth)
+            Tickets: 9933, 9934, 9935, 9936, 9999
+            Runs: 4
 
             - 9933 (batch 1): Login form
             - 9934 (batch 2): Token refresh
+            - 9935 (manual): Hotfix
+            - 9936 (batch 1): Older stamp
             - 9999 (batch 2): Stray
 
             Commits without a Ticket: trailer: 1
             Commits naming another epic: ddddddd (Epic: 7)
             """;
-        Assert.Equal(expected.ReplaceLineEndings("\n"), MergeMessage.Build(Epic, "main", commits));
-        Assert.Equal(new[] { "9933", "9934", "9999" }, MergeMessage.Tickets(commits));
+        Assert.Equal(expected.ReplaceLineEndings("\n"), MergeMessage.Build(Epic, "42-auth", "main", commits));
+        Assert.Equal(new[] { "9933", "9934", "9935", "9936", "9999" }, MergeMessage.Tickets(commits));
     }
+
+    [Theory]
+    [InlineData("9933: Login form", "Login form")]
+    [InlineData("9933 - Login form", "Login form")]
+    [InlineData("9933", "9933")]
+    [InlineData("99330 bigger number", "99330 bigger number")]
+    [InlineData("Login form", "Login form")]
+    public void Title_DropsALeadingTicketLikeTheSquashLander(string subject, string title) =>
+        Assert.Equal(title, MergeMessage.Title(new TrailerCommit(new string('a', 40), subject, ["9933"], [], [], [])));
 
     [Fact]
     public void Build_NoTrailers_SaysSo()
     {
-        var text = MergeMessage.Build(Epic, "main", [new TrailerCommit(new string('a', 40), "x", [], [], [])]);
+        var text = MergeMessage.Build(Epic, null, "main", [new TrailerCommit(new string('a', 40), "x", [], [], [], [])]);
+        Assert.StartsWith("Merge epic 42-auth (epic/42-auth) into main\n\nEpic: 42\n", text);
         Assert.Contains("Tickets: none (no Ticket: trailers found)", text);
+        Assert.DoesNotContain("Runs:", text);
         Assert.DoesNotContain('\r', text);
         Assert.False(text.EndsWith('\n'));
     }
@@ -3235,14 +3371,36 @@ public class MergeMessageTests
     {
         using var repo = TempRepo.Create();
         repo.Git("checkout", "-q", "-b", "epic/42-auth");
-        repo.Commit("Login form\n\nBody text.\n\nTicket: 9933\nepic: 42\nBatch: 1", ("a.txt", "a\n"));
+        repo.Commit("Login form\n\nBody text.\n\nTicket: 9933\nepic: 42-auth\nBatch: 1\nswarm-run: run-1", ("a.txt", "a\n"));
         repo.Commit("No trailers", ("b.txt", "b\n"));
         repo.Git("checkout", "-q", "main");
         var commits = TrailerLog.Read(new GitRunner(repo.Root), "refs/heads/main", "refs/heads/epic/42-auth");
         Assert.Equal(2, commits.Count);
-        Assert.Equal(("Login form", "9933", "42", "1"), (commits[0].Subject, commits[0].Tickets.Single(), commits[0].Epics.Single(), commits[0].Batches.Single()));
+        Assert.Equal(("Login form", "9933", "42-auth", "1", "run-1"), (commits[0].Subject, commits[0].Tickets.Single(), commits[0].Epics.Single(), commits[0].Batches.Single(), commits[0].Runs.Single()));
         Assert.Empty(commits[1].Tickets);
         Assert.Equal(repo.Sha("epic/42-auth"), commits[1].Sha);
+    }
+
+    [Fact]
+    public void Read_ParsesTheTrailerBlockPlanBWrites()
+    {
+        // Built by Plan B's own SquashMessage (two tasks, a commit list, Source-Commit and Co-authored-by), so a
+        // change to the trailer block breaks this test.
+        var group = new SquashGroup(
+            "9933",
+            [new LandTask("T1", "task/9933-login", []), new LandTask("T2", "task/9933-more", ["T1"])],
+            [new string('1', 40), null],
+            [new SourceCommit(new string('2', 40), "Ada", "ada@example.invalid", "9933: Login form"), new SourceCommit(new string('3', 40), "Bob", "bob@example.invalid", "fix form")]);
+        var message = SquashMessage.Build(new SquashConfig(), group, new MessageContext("42-auth", 3, "run-1"));
+        using var repo = TempRepo.Create();
+        repo.Git("checkout", "-q", "-b", "epic/42-auth");
+        repo.Commit(message, ("a.txt", "a\n"));
+        repo.Git("checkout", "-q", "main");
+        var c = Assert.Single(TrailerLog.Read(new GitRunner(repo.Root), "refs/heads/main", "refs/heads/epic/42-auth"));
+        Assert.Equal(("9933: Login form", "9933", "42-auth", "3", "run-1"), (c.Subject, c.Tickets.Single(), c.Epics.Single(), c.Batches.Single(), c.Runs.Single()));
+        var text = MergeMessage.Build(Epic, "42-auth", "main", [c]);
+        Assert.Contains("\n- 9933 (batch 3): Login form", text);
+        Assert.DoesNotContain("another epic", text);
     }
 }
 ```
@@ -3269,8 +3427,9 @@ public class EpicCloserTests
             Config = TestConfig.For(Repo);
             Paths = RepoLocator.Locate(Repo.Root);
             new EpicOpener(Paths, Config).Open("42", "auth", null, null);
-            OnEpic("Login form\n\nTicket: 9933\nEpic: 42\nBatch: 1", ("t1.txt", "1\n"));
-            OnEpic("Token refresh\n\nTicket: 9934\nEpic: 42\nBatch: 2", ("t2.txt", "2\n"));
+            // Plan B-shaped commits: "{ticket}: {title}" subjects and the batch epic id in Epic:.
+            OnEpic("9933: Login form\n\nTicket: 9933\nEpic: 42-auth\nBatch: 1\nSwarm-Run: run-1", ("t1.txt", "1\n"));
+            OnEpic("9934: Token refresh\n\nTicket: 9934\nEpic: 42-auth\nBatch: 2\nSwarm-Run: run-1", ("t2.txt", "2\n"));
             MainBefore = Repo.Sha("main");
         }
 
@@ -3315,6 +3474,8 @@ public class EpicCloserTests
         Assert.StartsWith("Merge epic 42-auth (epic/42-auth) into main", f.Repo.Git("log", "-1", "--format=%B", "main"));
         Assert.Contains("Tickets: 9933, 9934", f.Repo.Git("log", "-1", "--format=%B", "main"));
         Assert.Equal(new[] { "9933", "9934" }, r.Tickets);
+        Assert.Contains("- 9933 (batch 1): Login form", r.Message);
+        Assert.DoesNotContain("another epic", r.Message);
         Assert.Equal(2, f.Repo.Git("log", "--first-parent", "--format=%H", "main").Split('\n').Length);
         Assert.Equal((EpicStates.Closed, "main", r.MergeCommit), (f.Store.Get("42").State, f.Store.Get("42").MergedInto, f.Store.Get("42").MergeCommit));
         Assert.False(Directory.Exists(Path.Combine(f.Repo.WorktreeRoot, "close-42")));
@@ -3330,6 +3491,20 @@ public class EpicCloserTests
         Assert.Equal(r.MergeCommit, f.Repo.Sha("main"));
         Assert.Equal("other", f.Repo.Git("rev-parse", "--abbrev-ref", "HEAD"));
         Assert.False(File.Exists(Path.Combine(f.Repo.Root, "t2.txt")));
+    }
+
+    [Fact]
+    public void StaleRefLock_ReportsGitsReasonNotMoved()
+    {
+        using var f = new Fixture();
+        f.Repo.Git("checkout", "-q", "-b", "other", f.MainBefore);
+        var lockFile = f.Repo.LockRef("main");
+        var e = Assert.Throws<ToolException>(() => f.Close());
+        File.Delete(lockFile);
+        Assert.Equal(ExitCodes.Environment, e.ExitCode);
+        Assert.Contains("could not move 'main'", e.Message);
+        Assert.Equal(f.MainBefore, f.Repo.Sha("main"));
+        Assert.Equal(EpicStates.Open, f.Store.Get("42").State);
     }
 
     [Fact]
@@ -3437,10 +3612,11 @@ namespace Swarm.Delivery;
 /// <param name="Subject">Subject line.</param>
 /// <param name="Tickets"><c>Ticket:</c> values.</param>
 /// <param name="Epics"><c>Epic:</c> values.</param>
-/// <param name="Batches"><c>Batch:</c> values.</param>
-public sealed record TrailerCommit(string Sha, string Subject, IReadOnlyList<string> Tickets, IReadOnlyList<string> Epics, IReadOnlyList<string> Batches);
+/// <param name="Batches"><c>Batch:</c> values (per run; <c>0</c> = manual <c>squash run</c>).</param>
+/// <param name="Runs"><c>Swarm-Run:</c> values.</param>
+public sealed record TrailerCommit(string Sha, string Subject, IReadOnlyList<string> Tickets, IReadOnlyList<string> Epics, IReadOnlyList<string> Batches, IReadOnlyList<string> Runs);
 
-/// <summary>Reads <c>Ticket:</c>/<c>Epic:</c>/<c>Batch:</c> trailers from git history.</summary>
+/// <summary>Reads <c>Ticket:</c>/<c>Epic:</c>/<c>Batch:</c>/<c>Swarm-Run:</c> trailers from git history.</summary>
 public static class TrailerLog
 {
     const char Field = '\x1f';
@@ -3477,7 +3653,7 @@ public static class TrailerLog
                 .ToList();
             IReadOnlyList<string> Values(string key) =>
                 trailers.Where(t => string.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase)).Select(t => t.Value).ToList();
-            commits.Add(new TrailerCommit(fields[0].Trim(), fields[1], Values("Ticket"), Values("Epic"), Values("Batch")));
+            commits.Add(new TrailerCommit(fields[0].Trim(), fields[1], Values("Ticket"), Values("Epic"), Values("Batch"), Values("Swarm-Run")));
         }
 
         return commits;
@@ -3495,22 +3671,28 @@ namespace Swarm.Delivery;
 /// <summary>Builds the <c>--no-ff</c> merge message of an epic close.</summary>
 public static class MergeMessage
 {
+    /// <summary>The <c>Batch:</c> value of a manual <c>squash run</c>.</summary>
+    public const string ManualBatch = "0";
+
     /// <summary>Builds the message.</summary>
     /// <param name="epic">The epic.</param>
+    /// <param name="batchEpic">The batch epic id of the epic branch (what the squash lander stamps in <c>Epic:</c>), or null.</param>
     /// <param name="into">Target branch.</param>
     /// <param name="commits">Commits being merged, oldest first.</param>
     /// <returns>LF-separated message without a trailing newline.</returns>
-    public static string Build(EpicRecord epic, string into, IReadOnlyList<TrailerCommit> commits)
+    public static string Build(EpicRecord epic, string? batchEpic, string into, IReadOnlyList<TrailerCommit> commits)
     {
         var sb = new StringBuilder();
         sb.Append($"Merge epic {epic.Id}-{epic.Slug} ({epic.Branch}) into {into}\n\n");
-        sb.Append($"Epic: {epic.Id}\n");
+        sb.Append(batchEpic is not null && batchEpic != epic.Id ? $"Epic: {epic.Id} (batch epic {batchEpic})\n" : $"Epic: {epic.Id}\n");
         var tickets = Tickets(commits);
         sb.Append(tickets.Count > 0 ? $"Tickets: {string.Join(", ", tickets)}\n" : "Tickets: none (no Ticket: trailers found)\n");
-        var batches = commits.SelectMany(c => c.Batches).Distinct(StringComparer.Ordinal).ToList();
-        if (batches.Count > 0)
+
+        // Batch numbers restart in every run, so the header counts runs instead of listing batch numbers.
+        var runs = commits.SelectMany(c => c.Runs).Distinct(StringComparer.Ordinal).Count();
+        if (runs > 0)
         {
-            sb.Append($"Batches: {string.Join(", ", batches)}\n");
+            sb.Append($"Runs: {runs}\n");
         }
 
         var ticketed = commits.Where(c => c.Tickets.Count > 0).ToList();
@@ -3519,13 +3701,13 @@ public static class MergeMessage
             sb.Append('\n');
             foreach (var c in ticketed)
             {
-                var batch = c.Batches.Count > 0 ? $" (batch {string.Join('+', c.Batches)})" : "";
-                sb.Append($"- {string.Join('+', c.Tickets)}{batch}: {c.Subject}\n");
+                var batch = c.Batches.Count > 0 ? $" ({string.Join('+', c.Batches.Select(b => b == ManualBatch ? "manual" : "batch " + b))})" : "";
+                sb.Append($"- {string.Join('+', c.Tickets)}{batch}: {Title(c)}\n");
             }
         }
 
         var untracked = commits.Count(c => c.Tickets.Count == 0);
-        var foreign = commits.Where(c => c.Epics.Count > 0 && !c.Epics.Contains(epic.Id, StringComparer.Ordinal)).ToList();
+        var foreign = commits.Where(c => c.Epics.Count > 0 && !c.Epics.Any(e => e == epic.Id || e == batchEpic)).ToList();
         if (untracked > 0 || foreign.Count > 0)
         {
             sb.Append('\n');
@@ -3542,6 +3724,29 @@ public static class MergeMessage
         }
 
         return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>The subject without a leading ticket followed by ':', space or '-' (the squash lander's subject is <c>{ticket}: {title}</c>).</summary>
+    /// <param name="commit">The commit.</param>
+    /// <returns>The title; the whole subject when nothing would be left.</returns>
+    public static string Title(TrailerCommit commit)
+    {
+        foreach (var ticket in commit.Tickets)
+        {
+            if (!commit.Subject.StartsWith(ticket, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var rest = commit.Subject[ticket.Length..];
+            var title = rest.TrimStart(':', ' ', '-');
+            if (rest.Length > 0 && (rest[0] is ':' or ' ' or '-') && title.Length > 0)
+            {
+                return title;
+            }
+        }
+
+        return commit.Subject;
     }
 
     /// <summary>Lists ticket ids in first-seen order.</summary>
@@ -3625,8 +3830,8 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
         var into = status.Into;
         IReadOnlyList<EpicBlocker> waived = options.Force ? status.Blockers.Where(b => b.Waivable).ToList() : [];
         var remaining = status.Blockers.Except(waived).ToList();
-        IReadOnlyList<TrailerCommit> commits = status.Tip is null ? [] : TrailerLog.Read(git, "refs/heads/" + into, "refs/heads/" + epic.Branch);
-        var message = MergeMessage.Build(epic, into, commits);
+        IReadOnlyList<TrailerCommit> commits = status.Tip is null ? [] : TrailerLog.Read(git, GitRunner.HeadsRef(into), GitRunner.HeadsRef(epic.Branch));
+        var message = MergeMessage.Build(epic, status.BatchEpic, into, commits);
         EpicCloseResult Result(string result, string? merge = null, IReadOnlyList<string>? files = null, bool deleted = false) =>
             new(SwarmJson.SchemaVersion, result, id, epic.Branch, into, merge, MergeMessage.Tickets(commits), remaining, waived, files ?? [], message, deleted);
 
@@ -3640,7 +3845,7 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
             return Result(CloseResults.DryRun);
         }
 
-        var intoSha = git.RevParse("refs/heads/" + into);
+        var intoSha = git.RevParse(GitRunner.HeadsRef(into));
         var path = StatePaths.Guard(Path.Combine(manager.Root, "close-" + id), "close worktree");
         string merge;
         Discard(git, path);
@@ -3691,10 +3896,21 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
             return;
         }
 
-        if (git.Try("update-ref", "-m", $"epic close {id}", "refs/heads/" + into, merge, intoSha).ExitCode != 0)
+        var r = git.Try("update-ref", "-m", $"epic close {id}", GitRunner.HeadsRef(into), merge, intoSha);
+        if (r.ExitCode == 0)
         {
-            throw new ToolException(ExitCodes.Environment, $"'{into}' moved during close; nothing merged", "re-run epic close");
+            return;
         }
+
+        // update-ref also fails when the ref cannot be locked (as Plan B's EpicRef.Move learned): only a changed tip
+        // means another writer moved it.
+        var now = git.Try("rev-parse", "--verify", "-q", GitRunner.HeadsRef(into)).StdOut.Trim();
+        throw string.Equals(now, intoSha, StringComparison.OrdinalIgnoreCase)
+            ? new ToolException(
+                ExitCodes.Environment,
+                $"could not move '{into}': {TextLines.OneLine(r.StdErr)}; nothing merged",
+                "if no other git process is running, remove the stale lock file git names (refs/heads/<branch>.lock, or reftable/tables.list.lock) and re-run epic close")
+            : new ToolException(ExitCodes.Environment, $"'{into}' moved during close; nothing merged", "re-run epic close");
     }
 
     static void Discard(GitRunner git, string path)
@@ -3713,7 +3929,7 @@ public sealed class EpicCloser(RepoPaths repo, SwarmConfig config)
 - [ ] **Step 6: Run to verify pass**
 
 Run: `cd <repo-root> && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter "FullyQualifiedName~MergeMessageTests|FullyQualifiedName~EpicCloserTests"`
-Expected: all PASS.
+Expected: all PASS (20 tests).
 
 - [ ] **Step 7: Commit**
 
@@ -3729,7 +3945,7 @@ git commit -m "Add epic close: trailer-listed --no-ff merge onto the active bran
 - Test: `tests/Swarm.Tools.Tests/Cli/EpicCliTests.cs`
 
 **Interfaces:**
-- Consumes: `CommonOptions`, `CliHost`, `ConfigOverrides.None`, `Progress`, `SwarmJson`, `ToolException` (Plan A); `EpicStore` (Task 2); `WorktreeManager` (Task 4); `EpicOpener` (Task 7); `EpicAssessor`, `EpicStatusList` (Task 8); `EpicCloser`, `CloseOptions`, `CloseResults` (Task 9).
+- Consumes: `CommonOptions`, `CliHost` (`Swarm.RunState.Cli`), `ConfigOverrides.None`, `Progress`, `SwarmJson` (`Swarm.RunState`), `ToolException.Format` (`Swarm.Git`) (signatures as quoted in Task 6); `JsonOutput.SingleJsonLine` (test support); `EpicStore` (Task 2); `WorktreeManager` (Task 4); `EpicOpener` (Task 7); `EpicAssessor`, `EpicStatusList` (Task 8); `EpicCloser`, `CloseOptions`, `CloseResults` (Task 9).
 - Produces:
   - `epic open <id> <slug> [--from <branch>] [--kind <k>] [common]` -> one `EpicOpenResult` line; warnings go to stderr; exit 0.
   - `epic status [<id>] [--into <branch>] [common]` -> one `EpicStatusList` line (one epic, or every epic by id); exit 0; an unknown id gives 3.
@@ -3739,10 +3955,10 @@ git commit -m "Add epic close: trailer-listed --no-ff merge onto the active bran
 - [ ] **Step 1: Write the failing tests** (`tests/Swarm.Tools.Tests/Cli/EpicCliTests.cs`)
 
 ```csharp
-using System.Text.Json;
 using Swarm.Git;
 using Swarm.RunState;
 using Swarm.Tools.Tests.Support;
+using static Swarm.Tools.Tests.Support.JsonOutput;
 using EpicProgram = Swarm.Epic.Cli.Program;
 
 namespace Swarm.Tools.Tests.Cli;
@@ -3757,16 +3973,13 @@ public class EpicCliTests
         return (code, stdout.ToString(), stderr.ToString());
     }
 
-    static JsonElement SingleJsonLine(string stdout) =>
-        JsonDocument.Parse(Assert.Single(stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))).RootElement;
-
     static (TempRepo Repo, string Config) Opened()
     {
         var repo = TempRepo.Create();
         var config = TestConfig.Write(repo, TestConfig.For(repo));
         Assert.Equal(0, Run(repo, "open", "42", "auth", "--config", config).Code);
         repo.Git("checkout", "-q", "epic/42-auth");
-        repo.Commit("Login\n\nTicket: 9933\nEpic: 42\nBatch: 1", ("t1.txt", "1\n"));
+        repo.Commit("9933: Login\n\nTicket: 9933\nEpic: 42-auth\nBatch: 1\nSwarm-Run: run-1", ("t1.txt", "1\n"));
         repo.Git("checkout", "-q", "main");
         return (repo, config);
     }
@@ -3972,12 +4185,12 @@ public static class Program
 - [ ] **Step 4: Run to verify pass, then the whole suite**
 
 Run: `cd <repo-root> && dotnet test tests/Swarm.Tools.Tests -warnaserror --filter FullyQualifiedName~EpicCliTests`
-Expected: all PASS.
+Expected: all PASS (10 tests).
 
 Run: `cd <repo-root> && dotnet build src/Swarm.sln -warnaserror && dotnet test tests/Swarm.Tools.Tests -warnaserror && dotnet test tests/Swarm.Tests -warnaserror`
-Expected: 0 warnings; all PASS (Plan A and renderer tests unaffected).
+Expected: 0 warnings; all PASS: `Swarm.Tools.Tests` 458 (314 from Plans A and B, including the renamed `SquashFixture` callers, plus 144 new), `Swarm.Tests` 541 (renderer, unaffected). The full `Swarm.Tools.Tests` run takes several minutes (7.5 min observed on an idle machine).
 
-- [ ] **Step 5: Pack both tools and smoke-test them through `dnx`** (Git Bash; local repo only, no remote; PowerShell uses `dnx` instead of `dnx.cmd`)
+- [ ] **Step 5: Pack both tools and smoke-test them through `dnx`, with a real `squash run`** (Git Bash; local repo only, no remote; PowerShell uses `dnx` instead of `dnx.cmd`; `Swarm.Squash` 0.1.1 is in the feed since Task 1 Step 7)
 
 ```bash
 cd <repo-root>
@@ -3992,23 +4205,23 @@ git config user.name s && git config user.email s@example.invalid
 git commit -q --allow-empty -m init
 dnx.cmd Swarm.Epic@0.1.0 --add-source "$FEED" -- open 42 auth; echo "exit $?"
 dnx.cmd Swarm.Worktree@0.1.0 --add-source "$FEED" -- create 9933 login --epic 42; echo "exit $?"
-cd "$SMOKE-wt/t-9933" && echo a > a.txt && git add a.txt
-git commit -q -m "Login" --trailer "Ticket: 9933" --trailer "Epic: 42" --trailer "Batch: 1"
+cd "$SMOKE-wt/t-9933" && echo a > a.txt && git add a.txt && git commit -q -m "Login"
 cd "$SMOKE"
-git update-ref refs/heads/epic/42-auth refs/heads/task/9933-login
+dnx.cmd Swarm.Squash@0.1.1 --add-source "$FEED" -- run --task T1 --branch task/9933-login --epic 42-auth; echo "exit $?"
 dnx.cmd Swarm.Worktree@0.1.0 --add-source "$FEED" -- prune --dry-run; echo "exit $?"
 dnx.cmd Swarm.Worktree@0.1.0 --add-source "$FEED" -- prune; echo "exit $?"
 dnx.cmd Swarm.Epic@0.1.0 --add-source "$FEED" -- status 42; echo "exit $?"
 dnx.cmd Swarm.Epic@0.1.0 --add-source "$FEED" -- close 42; echo "exit $?"
 git log --first-parent --format=%s main
+git log -1 --format=%B main
 ```
 
-The `update-ref` simulates batch landing the task: it is a fast-forward of the epic, which is not checked out. Expected: `open` prints `"branch":"epic/42-auth"`, `"batchEpic":"42-auth"`, then `exit 0`. `create` prints `"branch":"task/9933-login"`, then `exit 0`. `prune --dry-run` prints one item with `"action":"remove"` and `"done":false`. `prune` prints `"removed":1`, the directory `$SMOKE-wt/t-9933` is gone, and `git branch --list task/*` is empty. `status` prints `"readyToClose":true`. `close` prints `"result":"merged"` and `"tickets":["9933"]`. `git log --first-parent` prints `Merge epic 42-auth (epic/42-auth) into main` and then `init`. No prompt appears. If a re-pack is needed, bump `<Version>` first and use that version. Record per-call times, then clean up: `rm -rf "$SMOKE" "$SMOKE-wt"`.
+The `squash run` lands the task the way batch would (the default config has `epicBranchTemplate` `epic/{epic}`, so the batch epic id of `epic/42-auth` is `42-auth`); it squashes onto the epic, which is not checked out, through its integration worktree `$SMOKE-wt/int-42-auth` (detached, unmanaged). Expected: `open` prints `"branch":"epic/42-auth"`, `"batchEpic":"42-auth"`, then `exit 0`. `create` prints `"branch":"task/9933-login"`, then `exit 0`. `squash run` prints one JSON line with `"ticket":"9933"`, `"empty":false`, `"exitCode":0`, then `exit 0` (the commit is `9933: Login` with `Ticket: 9933`, `Epic: 42-auth`, `Batch: 0`, `Swarm-Run: squash-...`). `prune --dry-run` prints one item with `"action":"remove"`, reason `merged (content)` and `"done":false`. `prune` prints `"removed":1`, the directory `$SMOKE-wt/t-9933` is gone, and `git branch --list task/*` is empty. `status` prints `"readyToClose":true`. `close` prints `"result":"merged"` and `"tickets":["9933"]`. `git log --first-parent` prints `Merge epic 42-auth (epic/42-auth) into main` and then `init`; the merge message contains `Epic: 42 (batch epic 42-auth)`, `Runs: 1` and `- 9933 (manual): Login`, and no `Commits naming another epic` line. No prompt appears. If a re-pack is needed, bump `<Version>` first and use that version. Record per-call times, then clean up: `rm -rf "$SMOKE" "$SMOKE-wt"`.
 
 - [ ] **Step 6: Finish `docs/worktree-epic-tools.md`** (bump `updated:`). Add these sections, each stating only behaviour the tests pin:
   1. **epic**: the usage lines from this task's Interfaces; the branch model (workflow section 2): epic branch from the active branch, tickets squashed onto it by Plan B, `--no-ff` landing that is never squashed, history read with `git log --first-parent`; records in `<state>/epics/<id>.json`; idempotent open; `batchEpic` and how to choose `epicBranchTemplate` (e.g. `feature/{epic}` for example-org so that batch can address `feature/9933-login` as `--epic 9933-login`).
-  2. **Close blockers** (`## Close blockers`): the C9 table (code, meaning, waivable), the C8 mechanics (temp worktree `close-<id>`, fast-forward of the checked-out active branch or a CAS ref update, never a fetch or push, "behind" means behind the last fetch), and the merge message format with the example from `MergeMessageTests.Build_ListsTicketsBatchesUntrackedAndForeign`.
-  3. **Status for orchestrators**: every `EpicStatus` field, and that `epic status` and `epic close` share one assessor.
+  2. **Close blockers** (`## Close blockers`): the C9 table (code, meaning, waivable), the C8 mechanics (temp worktree `close-<id>`, fast-forward of the checked-out active branch or a CAS ref update, never a fetch or push, "behind" means behind the last fetch), and the merge message format with the example from `MergeMessageTests.Build_ListsTicketsRunsUntrackedAndForeign`: own commits are those whose `Epic:` is the epic id or its batch epic id (the squash lander stamps the batch epic id), the leading ticket is dropped from `{ticket}: {title}` subjects, `Batch: 0` shows as `manual`, and `Runs: <n>` counts distinct `Swarm-Run:` values because batch numbers restart in every run.
+  3. **Status for orchestrators**: every `EpicStatus` field, and that `epic status` and `epic close` share one assessor; that `batch-running` also covers a running `squash run` (shared per-epic lock); that a returned task landed later by `squash run` no longer counts as open (`EpicAssessorTests.ReturnedTask_LandedLaterBySquashRun_DoesNotBlock`); and that an open task's `reason` shows git's output for a land failure without files (`LandFailureWithoutFiles_ReportsGitOutputAsReason`).
   4. **Exit codes** for `epic` (C10), including that `close` prints JSON for 0 and 1 only.
   5. **Windows notes**: the 200-char guard, the MAX_PATH warning, path normalisation (worktrees identified by branch metadata), files held open during prune, and that `git worktree prune` is repository-wide.
 
@@ -4027,16 +4240,41 @@ Plan: [2026-10-03-worktree-epic.md](plans/2026-10-03-worktree-epic.md).
 | Merged detection | Batch ledger, ancestry, or merge-tree content equality (squash-aware). |
 | Prune safety | Locked never removed; dirty/unmerged/empty only with `--force`; `--dry-run`; per-item failures, exit 4. |
 | Epic close | `--no-ff` merge in a temp worktree, fast-forward the checked-out active branch or CAS the ref; blockers shared with `epic status`; `--force` waives only run-state blockers. |
+| Squash interplay | Own commits are those whose `Epic:` trailer is the epic id or its batch epic id (what the squash lander stamps); `Batch: 0` is shown as manual and runs are counted from `Swarm-Run:`; `squash run` writes no run state, so returned tasks it landed are cleared through the merged check; `batch-running` covers both tools' shared per-epic lock. |
+| Versions | `Swarm.Worktree` 0.1.0 and `Swarm.Epic` 0.1.0 (NOT REAL placeholder ids); `Swarm.TestGate` 0.1.2, `Swarm.Batch` 0.2.1 and `Swarm.Squash` 0.1.1 re-packed because their strict config loaders reject the new sections. |
 ```
 
-- [ ] **Step 8: Add to `docs/dnx-invocation-notes.md`** a subsection under `## Companion tools` (create the heading if Plan A has not yet) with the smoke commands from Step 5 and their observed results (only what was run). Bump `updated:`.
+- [ ] **Step 8: Add to `docs/dnx-invocation-notes.md`** a subsection `### Worktree and Epic 0.1.0` at the end of the existing `## Companion tools` section (after `### Squash and Batch 0.2.0`), in the same style (numbered table rows continuing from 9, times, what was not tried), with the smoke commands from Step 5 and their observed results (only what was run). Bump `updated:`.
 
-- [ ] **Step 9: Link** `docs/worktree-epic-tools.md` and this plan from `AGENTS.md` (the "Shared docs" line) and from `README.md`.
+- [ ] **Step 9: Link** `docs/worktree-epic-tools.md` and this plan from `AGENTS.md` and `README.md`. Exact edits (quoted in fences so the doc sweeper does not resolve them from `docs/plans/`):
+  - `AGENTS.md`: the "Shared docs (published wiki)" line currently ends with the squash tool and plan links; append:
+
+    ```text
+    ; [worktree and epic tools](docs/worktree-epic-tools.md) and plan [worktree + epic](docs/plans/2026-10-03-worktree-epic.md)
+    ```
+
+  - `README.md` status sentence, old:
+
+    ```text
+    Three more tools are built but not published: `testgate`, `batch` and `squash` (see [docs/batch-tools.md](docs/batch-tools.md), [docs/squash-tool.md](docs/squash-tool.md) and the plans [testgate + batch](docs/plans/2026-10-03-testgate-batch.md) and [squash](docs/plans/2026-10-03-squash.md)).
+    ```
+
+    new:
+
+    ```text
+    Five more tools are built but not published: `testgate`, `batch`, `squash`, `worktree` and `epic` (see [docs/batch-tools.md](docs/batch-tools.md), [docs/squash-tool.md](docs/squash-tool.md), [docs/worktree-epic-tools.md](docs/worktree-epic-tools.md) and the plans [testgate + batch](docs/plans/2026-10-03-testgate-batch.md), [squash](docs/plans/2026-10-03-squash.md) and [worktree + epic](docs/plans/2026-10-03-worktree-epic.md)).
+    ```
+
+  - `README.md`: after the bullet that starts `- Batched integration testing tools:`, add:
+
+    ```text
+    - Delivery tools: `worktree` (per-task worktrees from an epic branch, prune of merged work) and `epic` (open, status, `--no-ff` close). See [docs/worktree-epic-tools.md](docs/worktree-epic-tools.md); plan [2026-10-03-worktree-epic.md](docs/plans/2026-10-03-worktree-epic.md).
+    ```
 
 - [ ] **Step 10: Verify the doc sweeper is clean**
 
 Run: `cd <repo-root>/spikes/04-doc-sweeper/a && dotnet run sweep.cs -- ../../../docs --today <today>`
-Expected: no error and no `index-drift` warning for `worktree-epic-tools.md`, this plan, `decisions.md` or `dnx-invocation-notes.md`. Report pre-existing errors in other files (Plan A recorded two in `swarm-renderer-ledger.md`); do not fix them here.
+Expected: no error and no `index-drift` warning for `worktree-epic-tools.md`, this plan, `decisions.md`, `dnx-invocation-notes.md`, `batch-tools.md` or `squash-tool.md`. Before this plan (at `3b32d30`) the sweep reports 20 findings with 2 errors, both in `swarm-renderer-ledger.md` (`missing-created`, `missing-updated`), plus `index-drift` warnings for `swarm-renderer-ledger.md` and this plan; the plan's warning must be gone after Step 9. Report the pre-existing errors; do not fix them here.
 
 - [ ] **Step 11: Commit**
 
@@ -4050,8 +4288,95 @@ git commit -m "Add epic CLI; verify worktree and epic through dnx; document both
 ## Self-review
 
 - **Spec coverage:** workflow section 2. The epic branch `epic/<id>-<slug>` with configurable naming is Tasks 1 and 7. The task branch `task/<ticket>-<slug>` from the epic branch via `git worktree add -b` is Task 4: tooling creates the worktrees because built-in isolation branches from the default branch, and Task 6 docs record why. The full `feature/`/`bugfix/` prefixes for example-org are covered by C3, Task 1 validation, and the Review Focus 1 tests. Workflow section 4: `--no-ff` landing that is never squashed, readable with `--first-parent`, is Task 9 (parent-count and first-parent assertions). The trailers `Ticket:`/`Epic:`/`Batch:` are listed in the merge message (Task 9). Workflow section 5: the worktree tool's create/list/prune is Tasks 4-6; the epic tool's open/close plus status is Tasks 7-10; the `dnx` packaging is Tasks 2, 6 and 10. The worktree root comes from config `worktreeRoot` (Task 4, reusing Plan A). The existing 200-char guard is reused through `StatePaths.Guard` (Task 4, Task 9). JSON output for orchestrators: every command prints one `schemaVersion: 1` line (Tasks 4-10). Prune of merged or abandoned worktrees, with `--force`, `--dry-run` and locked-worktree awareness, is Task 5. Close refuses on unlanded or red state (`returned.jsonl`/`summary.json` via Task 3, blockers in Task 8), on a dirty active branch, and on an active branch behind its remote (Task 8, without fetching). `epic status` comes from the state dir (Tasks 8, 10). Spec section 2 run state under the main worktree reuses `StatePaths.Resolve` (Plan A). Spec section 9 Windows risks are Review Focus 2 and 4. Out of scope: the squash lander and trailer stamping (Plan B), fetching or pushing remotes, multi-machine use, and automatic splitting of large epics into several chunks (workflow open question 5).
-- **Shared-library use (no redefinition):** `GitRunner`, `ProcessResult`, `RepoLocator`/`RepoPaths`, `ToolException`/`ExitCodes`/`ToolErrors` (through `CliHost`), `SafeName`, `TextLines`, `FileTree`, `StatePaths`/`StateLayout`, `SwarmConfig`/`ConfigLoader`, `SwarmJson`, `JsonlFile`, `ReturnLedger`, `RunEvent`/`EventTypes`, `BatchSummary`/`LandedRecord`/`ReturnedEntry`/`FinalState`, `SlotSemaphore`/`SlotOptions`, `Progress`, `CliHost`, `CommonOptions`, and the test fixtures `TempRepo`/`TempDir`/`TestConfig` are all consumed with Plan A's signatures. `SwarmConfig`/`ConfigLoader` get only the Task 1 additive change. Plan B is not referenced except to avoid key conflicts (C2).
+- **Shared-library use (no redefinition):** `GitRunner`, `ProcessResult`, `RepoLocator`/`RepoPaths`, `ToolException`/`ExitCodes`/`ToolErrors` (through `CliHost`), `SafeName`, `TextLines`, `FileTree`, `StatePaths`/`StateLayout`, `SwarmConfig`/`ConfigLoader`, `SwarmJson`, `JsonlFile`, `ReturnLedger`, `RunEvent`/`EventTypes`, `BatchSummary`/`LandedRecord`/`ReturnedEntry`/`FinalState`, `SlotSemaphore`/`SlotOptions`, `Progress`, `CliHost`, `CommonOptions`/`ToolContext`, `GitRunner.HeadsRef`, and the test fixtures `TempRepo`/`TempDir`/`TestConfig`/`JsonOutput` are all consumed with their executed signatures (reconciled against `3b32d30`; see the Reconciliation log). `SwarmConfig`/`ConfigLoader` get only the Task 1 additive change, placed after Plan B's. Plan B is consumed as data (trailers, the shared per-epic lock, no run state for `squash run`); its code is used only by tests (`SquashMessage`, `SquashRunner`).
 - **Placeholder scan:** every code step has complete code. The deliberate human decisions are the real package ids and prefix (C11, csproj `Description`) and package metadata. `<repo-root>` and `<today>` are substitution markers, as in Plan A.
-- **Type consistency:** names checked across tasks: `IBranchNaming`/`WorktreeSection`/`EpicSection`/`BranchTemplate.Render/Check/IsValidSlug/HasAllowedPrefix`; `GitWorktree`, `WorktreeList.Parse/Read/CheckedOut/SamePath`; `BranchMeta(Branch, Ticket, Base, ForkPoint)`, `BranchMetaStore.Write/ReadAll`; `EpicRecord` (11 fields, the same order in Tasks 2, 6, 7, 9), `EpicStore.Find/Get/Save/All/PathOf/Dir`; `RunRecord`, `TaskOutcome.Blocking`, `RunHistory.Load/ForEpic/Outcomes/LandedBranches`; `MergeCheck.LandedVia`, `MergeVia.*`; `CreateRequest`, `WorktreeEntry` (14 fields, the same order in Tasks 4, 5), `WorktreeManager.Create/List/PathFor/Root/Git/State`; `PruneDecision/PruneItem/PruneReport`, `Pruner.Decide/Prune`; `EpicNaming.BatchEpicId`, `EpicOpener.Open`; `EpicBlocker`, `BlockerCodes.*`, `EpicStatus`, `EpicAssessor.Assess`; `TrailerCommit`, `TrailerLog.Read/Parse`, `MergeMessage.Build/Tickets`, `CloseOptions`, `CloseResults.*`, `EpicCloseResult`, `EpicCloser.Close`.
+- **Type consistency:** names checked across tasks: `IBranchNaming`/`WorktreeSection`/`EpicSection`/`BranchTemplate.Render/Check/IsValidSlug/HasAllowedPrefix`; `GitWorktree`, `WorktreeList.Parse/Read/CheckedOut/SamePath`; `BranchMeta(Branch, Ticket, Base, ForkPoint)`, `BranchMetaStore.Write/ReadAll`; `EpicRecord` (11 fields, the same order in Tasks 2, 6, 7, 9), `EpicStore.Find/Get/Save/All/PathOf/Dir`; `RunRecord`, `TaskOutcome.Blocking`, `RunHistory.Load/ForEpic/Outcomes/LandedBranches`; `MergeCheck.LandedVia`, `MergeVia.*`; `CreateRequest`, `WorktreeEntry` (14 fields, the same order in Tasks 4, 5), `WorktreeManager.Create/List/PathFor/Root/Git/State`; `PruneDecision/PruneItem/PruneReport`, `Pruner.Decide/Prune`; `EpicNaming.BatchEpicId`, `EpicOpener.Open`; `EpicBlocker`, `BlockerCodes.*`, `EpicStatus`, `EpicAssessor.Assess`; `TrailerCommit` (6 fields, with `Runs`), `TrailerLog.Read/Parse`, `MergeMessage.Build(epic, batchEpic, into, commits)/Title/Tickets/ManualBatch`, `CloseOptions`, `CloseResults.*`, `EpicCloseResult`, `EpicCloser.Close`.
 - **Review Focus:** each of the five lines names its tests, and each test is written out in its owning task (Tasks 1, 2, 3, 4, 5, 6, 7, 8, 9).
 - **Fixed during review:** tests that need unmerged work commit a real file change. An empty commit merges as a no-op, so the content check would correctly call it merged. Two conditional collection expressions got explicit types (`var x = c ? list : []` does not compile).
+
+## Reconciliation log
+
+2026-10-05: this plan was written before Plans A and B ran. It was reconciled against the executed code on `swarm/worktree-epic` at `3b32d30`: Plan B (19 task commits plus its fix wave) on `swarm/testgate-batch` @ `05dd5ce` (Plan A, 21 task commits plus its fix wave). The ten "Plan C compatibility" items of Plan B's final review were applied first (marked B1-B10 below), each checked against the source. Then every Consumes block, signature, helper, path, version, count and doc anchor was compared with the code. Only this file changed.
+
+**Verification.** All Task 1-10 code blocks were applied to a scratch clone of `3b32d30` outside the repo: whole files, plus the targeted edits exactly as written (`SwarmConfig`/`ConfigLoader` old -> new, the Epic CLI csproj, the test csproj references, `dotnet sln add`, the three version bumps and the `SquashFixture` rename). Results: `dotnet build src/Swarm.sln -warnaserror` gave 0 warnings and 0 errors, but only after the `SquashFixture` rename (row 2.4). The 143 new tests plus the existing `ConfigLoaderTests` and `SquashConfigTests` passed 180 of 180, and the full suites passed (row 10.9). Row 9.8 then added a 144th test, which was applied and run with its class. `dotnet pack` produced `Swarm.Worktree.0.1.0`, `Swarm.Epic.0.1.0`, `Swarm.TestGate.0.1.2`, `Swarm.Batch.0.2.1` and `Swarm.Squash.0.1.1`. The Task 10 Step 5 `dnx` smoke test, including the real `squash run`, was run from that scratch feed in a scratch repository: every expected output was observed, at 6 to 10 s per call. The scratch repository was deleted afterwards, and so were the `~/.nuget/packages/swarm.{epic,worktree,squash}` cache entries it created, so execution will not be served stale packages.
+
+Git 2.54.0.windows.1 experiments, in scratch directories outside the repo:
+- `git init` creates reftable repositories (`rev-parse --show-ref-format` prints `reftable`).
+- `git worktree add -q -b task/9933-login <path> <epic sha>` works and leaves the epic checked out nowhere.
+- `git branch -D` removes the branch's `swarm-*` config section.
+- `git config --get-regexp` keeps the branch (subsection) case and slashes.
+- The porcelain `locked <reason>` and `prunable gitdir file points to non-existent location` lines are parsed as expected.
+- A locked worktree whose directory is gone is **not** reported `prunable`. It survives `git worktree prune` and blocks `worktree add` at its path (`is a missing but locked worktree`).
+- `merge-tree --write-tree <epic> <task>` returns the epic's tree for squash-landed content.
+- With a file held open (`FileShare.None`), `git worktree remove` exits 255 with or without `--force`. By then it has already deleted the registration (row H7).
+
+Not proven: the Task 10 Step 10 doc sweep and the doc text of Tasks 1, 6 and 10 (no docs were written; the sweeper was run on the current docs to record the baseline), and behaviour on non-Windows hosts.
+
+| # | Where | What was wrong | Change | How verified |
+|---|---|---|---|---|
+| H1 | Header, Spec line | Said Plan B is "not a dependency" and gave no stacking (B10); front matter `updated` stale | States Plan B is merged first and this branch is stacked on `swarm/squash` @ `3b32d30`, on `swarm/testgate-batch` @ `05dd5ce`. Links `batch-tools.md`, `squash-tool.md` and both decision entries; `updated: 2026-10-05`. "Out of scope: the squash lander and trailer stamping (Plan B)" kept | `git log --oneline 74f8f59..HEAD`; docs read |
+| H2 | Tech Stack | No observed git version; the reftable default was not known | Notes git 2.54.0.windows.1 and that `git init` creates reftable repos | `git --version`; scratch `rev-parse --show-ref-format` |
+| H3 | C1 | Said "Plan A Tasks 1-8"; put "the CLI host" in `Swarm.RunState` (it is in `Swarm.RunState.Cli`, with `CtrlCScope`, `CommonOptions` and `ToolContext`); had no `HeadsRef` rule; said nothing about using Plan B code | Rewritten with the executed namespaces and members. Adds a `GitRunner.HeadsRef` rule (no `"refs/heads/" +` literals). Production code references no Plan B project; tests may use `SquashMessage`/`SquashRunner` | Read `src/Swarm.Git`, `src/Swarm.RunState`, `src/Swarm.RunState/Cli` |
+| H4 | C2 | Said "Plan B adds only its own section"; said "re-pack every tool" without a list or versions (B8, B9) | Names Plan B's top-level `lander` key and `squash` section, and places Plan C's two hunks after them. Bumps `Swarm.TestGate` 0.1.1 -> 0.1.2, `Swarm.Batch` 0.2.0 -> 0.2.1 and `Swarm.Squash` 0.1.0 -> 0.1.1 (all three loaders are strict) | Read `SwarmConfig.cs`, `ConfigLoader.cs` and the three csproj files; packed all three at the new versions |
+| H5 | C5 | Assumed the Ledger check sees every landing (B5) | Notes that `squash run` writes no run state and that batch prunes finished run folders beyond `keepRuns`; points to the Task 8 fix | Read `SquashRunner.cs` (no `RunDirectories` use) and `BatchEngine.Run` (`RunDirectories.Prune`) |
+| H6 | C9 | `batch-running` described only batch (B6) | Gives the lock path, which `batch run` and `squash run` share, and the detail text `a batch or squash run holds epic '<id>'` | Read `BatchEngine.Run` and `SquashRunner.Run` (both use `state.BatchLockDir(config.Epic)`, one slot, no wait) |
+| H7 | C6 | Assumed a held-file failure leaves the worktree registered | Records the observed git 2.54 behaviour: exit 255; the registration and `.git` file are already gone; the directory is left unregistered; the branch and its metadata are kept | Scratch experiment above; `PrunerTests.HeldFile_...` now pins it (row 5.2) |
+| H8 | File Structure | Missed the three csproj bumps and the doc files that Tasks 1 and 10 change | Rows added | n/a |
+| H9 | Global Constraints (tests) | Located the fixtures by Plan A task numbers; no `SWARM_TEST_ROOT`, `JsonOutput` or reftable note | Names `tests/Swarm.Tools.Tests/Support`, `TestPaths`' `SWARM_TEST_ROOT`, `JsonOutput`, and that ref locks must come from `TempRepo.LockRef` (reftable) | Read `TestPaths.cs`, `TempRepo.LockRef`; `StaleRefLock_...` passes on a reftable repo |
+| 1.1 | Task 1 Files, Interfaces | Old placement ("end of `SwarmConfig`, after `KeepRuns`"); Consumes listed names only | Files list the csproj and doc edits. Consumes quote `ConfigLoader.Parse/Validated/Check` and the strict-JSON behaviour | Read `ConfigLoader.cs`, `SwarmConfig.cs` |
+| 1.2 | Task 1 Steps 4-5 | "After `KeepRuns`" and "before `return e;`" would interleave with Plan B's `Lander`/`Squash` and `SquashConfig.Check` (B8) | Exact old -> new edits after `Squash` and after `e.AddRange(SquashConfig.Check(c.Squash));` | Applied in the scratch clone; built |
+| 1.3 | Task 1 Step 6 | The filter missed the config tests Plan B added and the CLI tests that round-trip `TestConfig.Write` | Adds `SquashConfigTests` and `SquashCliTests`; expected count 84 | Ran: 29 new + 24 + 13 + 18 pass |
+| 1.4 | Task 1 (new Step 7) | No re-pack step (B9) | Bumps and packs all three tools. Exact edits to `batch-tools.md` (versions and a `worktree`/`epicTool` config row) and `squash-tool.md` (versions). Step 8 commits them | Packed `Swarm.TestGate.0.1.2`, `Swarm.Batch.0.2.1` and `Swarm.Squash.0.1.1` in the scratch clone; doc lines read |
+| 2.1 | Task 2 Interfaces | Consumes cited Plan A task numbers only | Quotes `GitRunner.Run/Try/Lines`, `ProcessResult`, the exceptions of `SwarmJson.Read` and the `TempRepo` members used | Read sources |
+| 2.2 | Task 2 Step 1 csproj | The description wording differed from the executed `Swarm.Squash.Cli.csproj` | Adds "dependency-confusion risk", as Plan B does | Read csproj |
+| 2.3 | Task 2 Step 1 test csproj | The insertion point and "Plan A's two CLIs" were out of date | After the `Swarm.Squash.Cli` reference; "three existing CLIs", with the `SquashProgram` alias as the example | Read the test csproj and `SquashCliTests.cs` |
+| 2.4 | Task 2 Step 1 (new), Files | Not foreseen: the namespace `Swarm.Worktree` hides `SquashFixture.Worktree(repo)`, which Plan B's tests call through `using static`; 33 `CS0118` errors | Renames the fixture method to `IntegrationFor` in `SquashFixture.cs`, `SquashLanderTests.cs`, `SquashLanderEdgeTests.cs` and `TestedChainTests.cs` (exact `sed` plus a check). Notes the same hazard for a bare `Epic` | The scratch build failed with 33 errors and succeeded after the rename; the renamed Plan B tests pass in the full run |
+| 2.5 | Task 2 Step 7 | No count | 10 tests; notes that the build is clean only after 2.4 | Ran |
+| 3.1 | Task 3 Interfaces | Consumes by name only | Quotes `BatchSummary` (30 fields, in order), `ReturnedEntry` (16), `LandedRecord`, `RunEvent`, the `run-start` payload and the doubled `.docs/runs/runs/<id>` layout. States that a run is finished iff `summary.json` exists | Read `OutputTypes.cs`, `EventLog.cs`, `RunDirectories.cs`, `StatePaths.cs` and `BatchEngine.Run`; `docs/batch-tools.md` marks the layout "verified" |
+| 3.2 | Task 3 `RunStateFixture` | The `run-start` data `{ tasks, epicBranch }` and lander `fast-forward` differed from what batch writes | `{ tasks, epic, epicBranch, mode, lander }` and lander `squash`, like `BatchEngine.Run` | Tests pass |
+| 3.3 | Task 3 `MergeCheck` | `"refs/heads/" +` literals | `GitRunner.HeadsRef` | Build; tests (12) |
+| 4.1 | Task 4 Interfaces | Consumes by name; did not mention batch's `int-<epic>` worktree in the same root | Quotes the `StatePaths`, `RepoPaths`, `TempRepo` and `TestConfig` members. Notes that `int-<epic>` is detached and unmanaged | Read sources; in the smoke test, prune left `int-42-auth` alone |
+| 4.2 | Task 4 `WorktreeManager` | Five `"refs/heads/"` literals | `GitRunner.HeadsRef` (with `w.Branch!` in the rev-list range) | Build -warnaserror; tests (14) |
+| 5.1 | Task 5 Interfaces | Consumes by name | Quotes `ProcessResult` and the helpers | Read sources |
+| 5.2 | Task 5 `HeldFile_FailsItemKeepsBranchContinues` | Did not pin what git leaves behind | Asserts that the held directory still exists and is no longer listed (C6) | Test passes on Windows; scratch experiment |
+| 6.1 | Task 6 Interfaces | `CommonOptions`, `CliHost` and `ToolContext` had no namespace or signatures | Quotes the `Swarm.RunState.Cli` members and their behaviour; no `CtrlCScope` is needed | Read `CliHost.cs`, `CommonOptions.cs` |
+| 6.2 | Task 6 tests (also Task 10) | Redefined `SingleJsonLine`, which already exists as `Support/JsonOutput.SingleJsonLine` (Plan B's log row 13 fixed the same thing) | `using static Swarm.Tools.Tests.Support.JsonOutput;`; the local helper and the `System.Text.Json` using are removed | Build; tests (11) |
+| 6.3 | Task 6 Step 6 docs | Re-pack advice without versions; no `squash-tool.md` link; no held-file or `squash run` note | Adds the minimum versions (0.1.2 / 0.2.1 / 0.1.1), the link, the C6 leftover-directory behaviour and the C5 note | n/a (doc text) |
+| 7.1 | Task 7 Interfaces | Consumes by name; no reason given for "no checkout" | Quotes `SwarmConfig.EpicBranch`. Notes `RepoChecks.EnsureEpic`: batch and `squash run` refuse a checked-out epic with exit 3 | Read `RepoChecks.cs`, `SwarmConfig.cs` |
+| 7.2 | Task 7 `EpicOpener` | Three `"refs/heads/"` literals | `GitRunner.HeadsRef` | Build; tests (13) |
+| 8.1 | Task 8 Interfaces | Did not quote `SlotSemaphore`, the lock sharing or the test dependencies | Quotes `SlotSemaphore(...).Status()`/`SlotHolder`, `BatchLockDir` (shared lock), `MergeCheck`, and `SquashRunner`/`ToolContext` | Read `SlotSemaphore.cs`, `SquashRunner.cs` |
+| 8.2 | Task 8 fixture | The epic commit was stamped `Epic: 42`, which Plan B never writes (B1) | `9933: work` with `Epic: 42-auth` and `Swarm-Run: r0` | Tests pass |
+| 8.3 | Task 8 `BatchRunning` | The text said "a batch run" (B6) | `a batch or squash run holds epic '<id>'`, plus the doc comments; `LiveBatchLock_...` asserts the text | Test passes |
+| 8.4 | Task 8 `EpicAssessor` | A task that batch returned and a human landed with `squash run` blocked close forever (B5) | Open tasks leave out outcomes whose branch exists and for which `MergeCheck.LandedVia(git, branch, epic.Branch, ledger)` is non-null. New test `ReturnedTask_LandedLaterBySquashRun_DoesNotBlock` runs a **real** `SquashRunner` | Test passes |
+| 8.5 | Task 8 `TaskReturn.Reason` | Showed batch's generic `land conflict with the epic tip` for land failures (B7) | `ReasonOf` returns `GitOutput` (one-lined) for `stage: land` with no files. New test `LandFailureWithoutFiles_ReportsGitOutputAsReason` uses the squash lander's real no-ticket text | Read `BatchEngine.ReturnConflict` and `SquashLander.NoTicketReason`; test passes |
+| 8.6 | Task 8 `EpicAssessor` | Six `"refs/heads/"` literals | `GitRunner.HeadsRef` | Build; tests (15) |
+| 9.1 | Task 9 Interfaces | Did not describe what Plan B writes (B4) | New "What Plan B writes" paragraph: the subject template, the trailer order, the batch epic id in `Epic:`, per-run `Batch:`, and `0` = manual | Read `SquashMessage.cs` and `docs/squash-tool.md#what-lands` |
+| 9.2 | Task 9 `TrailerCommit`/`TrailerLog` | `Swarm-Run` was not read (B3) | `TrailerCommit` gains `Runs`; `Parse` reads `Swarm-Run` | Tests pass |
+| 9.3 | Task 9 `MergeMessage.Build` | Every squash-landed commit was listed as "naming another epic", because only `epic.Id` counted (B1) | New parameter `batchEpic`. A commit is the epic's own when its `Epic:` is `epic.Id` or `batchEpic`. Header `Epic: 42 (batch epic 42-auth)`. `EpicCloser` passes `status.BatchEpic`. A fixture with `Epic: 42` still counts as the epic's own | `Build_ListsTicketsRunsUntrackedAndForeign`; `EpicCloserTests.ActiveCheckedOut_...` asserts there is no "another epic" line; smoke test |
+| 9.4 | Task 9 `MergeMessage` | `- 9933 (batch 1): 9933: Login form` showed the ticket twice (B2) | `MergeMessage.Title` drops a leading ticket followed by `:`, space or `-`, and keeps the subject when nothing would be left. This is the rule of Plan B's `SquashMessage.Title`, which `Swarm.Delivery` cannot reference (C1) | `Title_DropsALeadingTicketLikeTheSquashLander` (5 cases) |
+| 9.5 | Task 9 `MergeMessage` | `Batches: 1, 2` is ambiguous across runs, and `Batch: 0` means manual (B3) | The header line `Runs: <count of distinct Swarm-Run values>` replaces `Batches:`; each line says `(batch N)` or `(manual)` | Tests; the smoke message has `Runs: 1` and `- 9933 (manual): Login` |
+| 9.6 | Task 9 `MergeMessageTests` | Fixtures were not Plan B-shaped; no test against the real trailer block (B4) | Fixtures rewritten. `Read_ParsesTheTrailerBlockPlanBWrites` commits a message built by Plan B's own `SquashMessage.Build` (two tasks, `Squashed commits:`, `Source-Commit`, `Co-authored-by`), so a format change breaks it. That is stronger than a copied literal | Tests pass (9) |
+| 9.7 | Task 9 `EpicCloserTests` | Fixtures used `Login form` and `Epic: 42` (B1, B2) | `9933: Login form`, `Epic: 42-auth`, `Swarm-Run`; asserts the stripped line and that there is no foreign-epic line | Tests pass |
+| 9.8 | Task 9 `EpicCloser.MoveActive` | Reported any failed CAS `update-ref` as "moved during close". Plan B's fix wave (`479af1b`) showed that a stale ref lock (including reftable's `tables.list.lock`) must report git's reason | Re-reads the ref. If it is unchanged: `could not move '<into>': <git's reason>`, with the stale-lock hint. If it changed: "moved". New test `StaleRefLock_ReportsGitsReasonNotMoved` uses `TempRepo.LockRef` | Row 10.9 |
+| 9.9 | Task 9 `EpicCloser` and `TrailerLog` callers | Three `"refs/heads/"` literals | `GitRunner.HeadsRef` | Build; tests (20) |
+| 10.1 | Task 10 Interfaces, tests | Consumes cited Plan A only; local `SingleJsonLine`; fixture used `Epic: 42` | Namespaces, `JsonOutput` and a Plan B-shaped fixture | Tests pass (10) |
+| 10.2 | Task 10 Step 5 smoke test | Used a hand-made trailer commit plus `update-ref` (B10, optional) | A real `dnx Swarm.Squash@0.1.1 -- run --task T1 --branch task/9933-login --epic 42-auth`. Expected outputs include `merged (content)`, `Epic: 42 (batch epic 42-auth)`, `Runs: 1` and `- 9933 (manual): Login` | Run from the scratch feed; every expected output observed |
+| 10.3 | Task 10 Steps 6-9 | Old test name; no squash interplay in the docs or decisions; the dnx-notes heading was "create if missing" (it exists, with a `### Squash and Batch 0.2.0` subsection); the AGENTS and README edits were paraphrased | The doc items name the new tests and rules. Two decision rows (`Squash interplay`, `Versions`). `### Worktree and Epic 0.1.0` goes after the existing subsection. Exact old -> new text for AGENTS and README | Read `docs/dnx-invocation-notes.md`, `AGENTS.md`, `README.md` and `docs/decisions.md` |
+| 10.4 | Task 10 Step 10 | No baseline given | Records the current sweep: 20 findings and 2 errors (both in `swarm-renderer-ledger.md`), with `index-drift` for that file and this plan | Ran `spikes/04-doc-sweeper/a/sweep.cs -- ../../../docs --today 2026-10-05` |
+| 10.9 | Task 10 Step 4 | No counts; the review baseline (306 tools tests) predates Plan B's last fix commits | `Swarm.Tools.Tests` 458 = 314 existing + 144 new; `Swarm.Tests` 541 | Scratch full runs: `Swarm.Tools.Tests` 457 of 457 (7 m 26 s) and `Swarm.Tests` 541 of 541 before row 9.8 added one test; then `EpicCloserTests` + `MergeMessageTests` 20 of 20 with it |
+| S1 | Self-review | Said "Plan B is not referenced"; the type list lacked `Runs`/`batchEpic` | Updated | n/a |
+| S2 | Task 1 Step 7, Task 10 Step 9 (new quotes) | The first draft of the exact doc edits quoted Markdown links in double-backtick spans, which the doc sweeper resolves from `docs/plans/` (17 `broken-link` errors) | The quoted rows and sentences moved into `text` fences, as Plan B's `3b32d30` did for its quoted links | Sweeper on the reconciled docs: 20 findings, 2 errors (the pre-existing `swarm-renderer-ledger.md` pair), only the expected `index-drift` warning for this plan |
+
+Checked against the executed code and left unchanged:
+- `SafeName` (including dots), `StatePaths.Guard` (200), `StateLayout.BatchLockDir`, `SlotOptions.From` and `SlotSemaphore.Acquire/TryAcquire`.
+- `RepoLocator.Locate` (exit 3 outside a repo), `ToolErrors.Handle` (one stderr line) and `CliHost.Invoke` parse errors (exit 2, one line).
+- `JsonlFile.ReadAll` (a missing file reads as empty), `ReturnLedger.New/ReadLatest`, the `FinalState`/`ReturnKind`/`ReturnStage` values and `LandedRecord`.
+- The test fixtures: `TempRepo` (`Create`, `Git`, `RunGit`, `Commit`, `Branch`, `Epic`, `Sha`, `LockRef`, `Sandbox`, `StateDir`, `WorktreeRoot`), `TempDir` and `TestConfig.For/Write`.
+- The strict loader's messages (`'branchTemplte'`, and `invalid config` for `null`).
+- The `EpicRecord`, `WorktreeEntry` and `EpicStatus` shapes and the CLI command shapes.
+- The decision-table and sweeper commands, and rulings C3, C4, C7, C8, C10 and C11.
+
+Executed-code observations for whoever executes this plan (not changed here):
+1. `RunDirectories.Prune` keeps the newest `keepRuns` finished runs across **all** epics. A busy epic's batch runs can therefore delete another epic's run folders, and with them the returned-task evidence that `tasks-returned` relies on.
+2. `IntegrationWorktree.Ensure` runs a repository-wide `git worktree prune` at the start of every batch and `squash run`. A task worktree whose directory was deleted is therefore deregistered before `worktree prune` sees it; its branch and `swarm-*` metadata stay, and `worktree list/prune` only enumerate registered worktrees. A held-file removal failure (C6) leaves the same state.
+3. Batch still says `another batch run holds epic` when a `squash run` holds the lock. It also still records a land failure's reason only in `gitOutput` (Plan B final review I1); Task 8 works around this.

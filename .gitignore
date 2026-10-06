@@ -6,3 +6,6 @@ spikes/00-probes/hooktest/probe5.txt
 
 bin/
 obj/
+
+# SDD scratch (ledgers, briefs, reports, review packages)
+.superpowers/

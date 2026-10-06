@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\Swarm.Tooling.props" />
+  <ItemGroup>
+    <ProjectReference Include="..\Swarm.Git\Swarm.Git.csproj" />
+    <ProjectReference Include="..\Swarm.RunState\Swarm.RunState.csproj" />
+    <ProjectReference Include="..\Swarm.Batching\Swarm.Batching.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Swarm.Tools.Tests" />
+  </ItemGroup>
+</Project>

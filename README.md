@@ -2,7 +2,7 @@
 
 Pasteable **swarm definitions** that run as wide, orchestrated fleets of Claude Code agents — cheap/small models for the bulk of the work, expert (elevated-model) agents only where needed.
 
-> Status: **early tooling**. The capability study and spikes are done, and the first tool is built: `swarm`, which validates a swarm definition (Markdown, YAML or C#) and renders Claude Code agent files, workflow scripts and a runbook. It is not published yet and has not run end to end with real agents. The other planned tools (testgate, batch, squash) are not built yet. See [docs/definition-format.md](docs/definition-format.md).
+> Status: **early tooling**. The capability study and spikes are done, and the first tool is built: `swarm`, which validates a swarm definition (Markdown, YAML or C#) and renders Claude Code agent files, workflow scripts and a runbook. It is not published yet and has not run end to end with real agents. Five more tools are built but not published: `testgate`, `batch`, `squash`, `worktree` and `epic` (see [docs/batch-tools.md](docs/batch-tools.md), [docs/squash-tool.md](docs/squash-tool.md), [docs/worktree-epic-tools.md](docs/worktree-epic-tools.md) and the plans [testgate + batch](docs/plans/2026-10-03-testgate-batch.md), [squash](docs/plans/2026-10-03-squash.md) and [worktree + epic](docs/plans/2026-10-03-worktree-epic.md)). See [docs/definition-format.md](docs/definition-format.md).
 
 ## Goals
 
@@ -18,6 +18,8 @@ Pasteable **swarm definitions** that run as wide, orchestrated fleets of Claude 
 - Capability matrix: what we can and can't refine about sub-agents; what we can and can't do with cross-session communication and sign-off. See [docs/capabilities.md](docs/capabilities.md).
 - Overview of recent work (last 6 months, i.e. since 2026-04) in the parent development folder that this builds on. See [docs/landscape.md](docs/landscape.md).
 - A first swarm-definition format and a worked example: [docs/definition-format.md](docs/definition-format.md).
+- Batched integration testing tools: `testgate` (machine-wide test slots) and `batch` (adaptive batches with bisect). See [docs/batch-tools.md](docs/batch-tools.md); plan [2026-10-03-testgate-batch.md](docs/plans/2026-10-03-testgate-batch.md).
+- Delivery tools: `worktree` (per-task worktrees from an epic branch, prune of merged work) and `epic` (open, status, `--no-ff` close). See [docs/worktree-epic-tools.md](docs/worktree-epic-tools.md); plan [2026-10-03-worktree-epic.md](docs/plans/2026-10-03-worktree-epic.md).
 
 ## Layout
 

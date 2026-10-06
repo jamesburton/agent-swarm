@@ -1,3 +1,8 @@
+---
+created: 2026-10-03
+updated: 2026-10-06
+status: archived
+---
 # SDD ledger — plan: docs/plans/2026-10-03-swarm-definition-renderer.md
 
 Worktree: C:/Development/agent-swarm-wt/renderer (branch swarm/definition-renderer, base ea0ad55). Spec: docs/specs/2026-10-02-agent-swarm-design.md (reachable).

@@ -1,6 +1,6 @@
 ---
 created: 2026-10-02
-updated: 2026-10-05
+updated: 2026-10-06
 status: current
 ---
 # Decision log
@@ -159,3 +159,7 @@ Cross-plan facts:
 - The cost of a ticket-less task under `squash.requireTicket` for its batch-mates is recorded in [squash-tool.md](squash-tool.md#known-limitations); `epic status` shows such a return's real reason from git's output.
 - Stale registrations whose directory still exists are never removed by the tools (`worktree prune` keeps them, also with `--force`, and no tool runs the repository-wide `git worktree prune`); a human inspects them. A `git worktree prune` or `git gc` outside the tools can still deregister them.
 - Found by the `dnx` run, fixed in the final-review fix wave: `GitRunner` (Plan A) runs every git call with `-c core.autocrlf=false`, so under Git for Windows' default `core.autocrlf=true` a tracked file git checked out with CRLF read as modified to the tools while `git status` was clean, and `epic close` was blocked by `active-dirty`. `GitRunner.WithRepoLineEndings()` (additive) omits that setting; it is used only where git judges or updates a worktree the user owns: the `active-dirty` check, the `dirty` flag of `worktree list`, `prune`'s non-forced `git worktree remove`, and `epic close`'s fast-forward of the user's checkout. Tool-owned worktrees keep `core.autocrlf=false` ([worktree-epic-tools.md](worktree-epic-tools.md#known-limitations)).
+
+## Build ledgers (2026-10-06)
+
+The subagent-driven build ledgers (pre-flight scans, rulings with their cost if wrong, per-task review outcomes and deferred minors) are archived verbatim: [definition + renderer](swarm-renderer-ledger.md), [testgate + batch](testgate-batch-ledger.md), [squash](squash-ledger.md), [worktree + epic](worktree-epic-ledger.md). The worktree + epic ledger ends at Task 9; Task 10 and the Plan C final-review fix wave are recorded in the commits `2289712` and `3b9c6db` and in the entries above.

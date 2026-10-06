@@ -34,7 +34,7 @@ public class DocMessagesTests
         { Md("model: haiku\n", ""), "role 'worker': missing required model" },
         { Md("model: haiku", "model: gpt-9"), $"role 'worker': {BadModel}" },
         { Md("version: 0.1.0", "version: 0.1"), "tool 'squash': exact pinned version required (got '0.1')" },
-        { Md("package: Swarm.Squash\n", ""), "tool 'squash': explicit package id required" },
+        { Md("package: AgentSwarm.Squash\n", ""), "tool 'squash': explicit package id required" },
         { Md("## tool: squash", "## tool: worker"), "duplicate name 'worker'" },
         { Md("## orchestrator  (code)\nflow: worker*, gate:batch-green, reviewer, tool:squash\n\n", ""), "expected exactly one code orchestrator role" },
         { Md("worker*, gate", "worker*, ghost, gate"), "flow stage 'ghost' (Role) does not exist" },
@@ -64,7 +64,7 @@ public class DocMessagesTests
         { Md("## reviewer  (llm)", "## yes  (llm)").Replace("reviewer, tool", "yes, tool"), $"role 'yes': {YamlValueName}" },
         { Md("flow: worker*, gate:batch-green, reviewer, tool:squash\n", ""), "flow is empty (the orchestrator needs at least one stage)" },
         { Md("reviewer, tool:squash", "tool:squash"), "role 'reviewer' is not used by the flow or any escalate-to" },
-        { Md("package: Swarm.Squash", "package: Swarm Squash"), $"tool 'squash': package 'Swarm Squash' {NotNuGetId}" },
+        { Md("package: AgentSwarm.Squash", "package: Swarm Squash"), $"tool 'squash': package 'Swarm Squash' {NotNuGetId}" },
         { Md("context: distilled", "context: forked"), "unsupported context 'forked' in role 'expert' (allowed: distilled)" },
     };
 
@@ -98,9 +98,9 @@ public class DocMessagesTests
         { Yaml("tools: [Read, Grep, Glob, Bash]", "tools: [Read, \"\", Glob]"), "empty entry in role 'reviewer' tools" },
         { Yaml("    kind: code\n    flow:", "    kind: code\n    model: haiku\n    flow:"), "unknown key 'model' in code role 'orchestrator'" },
         { Yaml("    effort: low\n", "    effort: low\n    flow: [a]\n"), "unknown key 'flow' in llm role 'worker'" },
-        { Yaml("  squash:\n    package: Swarm.Squash\n    version: 0.1.0\n", "  squash: \"\"\n"), "invalid YAML (line 40): Exception during deserialization" },
-        { Yaml("  squash:\n    package: Swarm.Squash\n    version: 0.1.0\n", "  squash: {}\n"), "tool 'squash': explicit package id required" },
-        { Yaml("    package: Swarm.Squash\n", "    package: Swarm.Squash\n    bogus: 1\n"), "unknown key 'bogus' in tool 'squash'" },
+        { Yaml("  squash:\n    package: AgentSwarm.Squash\n    version: 0.1.0\n", "  squash: \"\"\n"), "invalid YAML (line 40): Exception during deserialization" },
+        { Yaml("  squash:\n    package: AgentSwarm.Squash\n    version: 0.1.0\n", "  squash: {}\n"), "tool 'squash': explicit package id required" },
+        { Yaml("    package: AgentSwarm.Squash\n", "    package: AgentSwarm.Squash\n    bogus: 1\n"), "unknown key 'bogus' in tool 'squash'" },
         { Yaml("    kind: test\n", "    kind: test\n    extra: 1\n"), "unknown key 'extra' in gate 'batch-green'" },
         { Yaml("description: Deliver", "colour: red\ndescription: Deliver"), "unknown top-level key 'colour'" },
         { Yaml("  reviewer:\n", "  \"\":\n"), "role name must not be empty" },
@@ -108,7 +108,7 @@ public class DocMessagesTests
         { Yaml("  batch-green:\n", "  \"\":\n"), "gate name must not be empty" },
         { Yaml("    context: distilled\n", "    context: forked\n"), "unsupported context 'forked' in role 'expert' (allowed: distilled)" },
         { Yaml("  reviewer:\n", "  yes:\n").Replace("\"reviewer\"", "\"yes\""), $"role 'yes': {YamlValueName}" },
-        { Yaml("    package: Swarm.Squash\n", "    package: Swarm Squash\n"), $"tool 'squash': package 'Swarm Squash' {NotNuGetId}" },
+        { Yaml("    package: AgentSwarm.Squash\n", "    package: Swarm Squash\n"), $"tool 'squash': package 'Swarm Squash' {NotNuGetId}" },
     };
 
     [Theory]

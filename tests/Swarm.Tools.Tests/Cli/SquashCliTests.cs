@@ -187,7 +187,7 @@ public class SquashCliTests
     [Fact]
     public void NoArguments_Exit2OneLine()
     {
-        // The renderer sample's runbook step is the bare `dnx Swarm.Squash@0.1.0`.
+        // The renderer sample's runbook step is the bare `dnx AgentSwarm.Squash@0.1.0`.
         using var repo = RepoWithParserBranch();
         var before = repo.Sha("epic/E1");
         var (code, output, err) = Run(repo);

@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\Swarm.Packaging.props" />
 
   <ItemGroup>
     <ProjectReference Include="..\Swarm.Core\Swarm.Core.csproj" />
@@ -13,7 +14,8 @@
     <Nullable>enable</Nullable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>swarm</ToolCommandName>
-    <PackageId>Swarm.Cli</PackageId>
+    <PackageId>AgentSwarm.Cli</PackageId>
+    <Description>Validates swarm definitions (Markdown, YAML or C#) and renders Claude Code agent files, workflow scripts and a runbook.</Description>
     <Version>0.1.0</Version>
   </PropertyGroup>
 

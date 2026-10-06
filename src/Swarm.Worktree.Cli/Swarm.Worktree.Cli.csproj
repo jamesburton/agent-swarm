@@ -1,13 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <Import Project="..\Swarm.Tooling.props" />
+  <Import Project="..\Swarm.Packaging.props" />
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>worktree</ToolCommandName>
-    <PackageId>Swarm.Worktree</PackageId>
+    <PackageId>AgentSwarm.Worktree</PackageId>
     <Version>0.1.0</Version>
-    <Description>NOT REAL placeholder package id (unclaimed on nuget.org; dependency-confusion risk). Per-task git worktrees from an epic branch for agent swarms.</Description>
+    <Description>Per-task git worktrees from an epic branch for agent swarms.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Swarm.Git\Swarm.Git.csproj" />

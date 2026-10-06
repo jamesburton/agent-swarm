@@ -1,0 +1,78 @@
+# Builds, tests and packs the six dnx tools, then publishes them to nuget.org
+# with Trusted Publishing (GitHub OIDC -> short-lived nuget.org API key; no stored key).
+# Setup and release steps: docs/publishing.md.
+#
+# The nuget.org Trusted Publishing policy must name: owner `jamesburton`,
+# repository `agent-swarm`, workflow file `publish.yml`, environment `release`.
+# Renaming this file or the environment breaks publishing until the policy is updated.
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Windows matches the development host; some tests exercise Windows-only file-locking behaviour.
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build src/Swarm.sln -c Release -warnaserror
+
+      - name: Test (renderer)
+        run: dotnet test tests/Swarm.Tests -c Release --no-build
+
+      - name: Test (tools)
+        run: dotnet test tests/Swarm.Tools.Tests -c Release --no-build
+
+      # Only the six *.Cli projects are packable; the libraries set IsPackable=false.
+      - name: Pack
+        run: dotnet pack src/Swarm.sln -c Release --no-build -o artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: artifacts/*.nupkg
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write # lets NuGet/login request the GitHub OIDC token
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: artifacts
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # Exchanges the OIDC token for a nuget.org API key valid for one hour; request it just before the push.
+      - name: NuGet login (OIDC -> temporary API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }} # nuget.org profile name, not the email address
+
+      # --skip-duplicate: each tool keeps its own version, so a release publishes only the tools whose <Version> was bumped.
+      - name: NuGet push
+        run: dotnet nuget push "artifacts/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate

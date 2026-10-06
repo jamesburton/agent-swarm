@@ -1,6 +1,6 @@
 ---
 created: 2026-10-04
-updated: 2026-10-05
+updated: 2026-10-06
 status: current
 ---
 # squash
@@ -9,13 +9,13 @@ Lands task branches on an epic branch as one trailer-stamped commit per task (or
 
 Written on 2026-10-04 from the source at the end of the squash plan. Each statement was checked by reading the named source or by running the command; anything else is labelled `unverified`.
 
-## Package status (NOT REAL)
+## Package status (not published yet)
 
-- **NOT REAL: nothing is published.** `Swarm.Squash` returned 404 on nuget.org on 2026-10-03 (see [definition-format.md](definition-format.md)). Nobody owns the id, so anyone could publish under it and `dnx` would download and run it (dependency confusion). Run it only with `--add-source <your feed>`.
-- Before any publish: reserve an owned id prefix and add license, authors and readme metadata. `dotnet pack` currently prints `The package Swarm.Squash.0.1.0 is missing a readme` (NU5039); no metadata was added.
-- Versions as built: `Swarm.Squash` 0.1.1, `Swarm.Batch` 0.2.1, `Swarm.TestGate` 0.1.2 (bumped together when the `worktree` and `epicTool` config sections were added). dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)).
+- **Not published yet.** The package id is `AgentSwarm.Squash` (renamed on 2026-10-06 from the placeholder `Swarm.Squash`); nuget.org returned 404 for all six `AgentSwarm.*` ids on 2026-10-06, so until the first publish anyone could publish under them and `dnx` would download and run it (dependency confusion). Run them only with `--add-source <your feed>` until a release has been published (see [publishing.md](publishing.md)).
+- Package metadata (MIT license, authors, repository, readme) comes from `src/Swarm.Packaging.props`; `dotnet pack` of the solution printed no warnings on 2026-10-06. Run records on this page and in [dnx-invocation-notes.md](dnx-invocation-notes.md) were made before the rename and show the old `Swarm.*` ids.
+- Versions as built: `AgentSwarm.Squash` 0.1.1, `AgentSwarm.Batch` 0.2.1, `AgentSwarm.TestGate` 0.1.2 (bumped together when the `worktree` and `epicTool` config sections were added). dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)).
 - Requires the .NET 10 SDK or later. dnx rules: no `--yes`, `dnx.cmd` in Git Bash, `--` before the tool's own arguments. Run records: [dnx-invocation-notes.md](dnx-invocation-notes.md#companion-tools).
-- The renderer sample's runbook step `dnx Swarm.Squash@0.1.0` has no arguments. It exits 2 with `error: Required command was not provided. (see --help)` and changes nothing (run, see the dnx notes). In a batch flow the squashing happens inside `batch`, not in that step.
+- The renderer sample's runbook step `dnx AgentSwarm.Squash@0.1.0` has no arguments. It exits 2 with `error: Required command was not provided. (see --help)` and changes nothing (run as `Swarm.Squash@0.1.0` before the rename, see the dnx notes). In a batch flow the squashing happens inside `batch`, not in that step.
 
 ## Two ways to use it
 

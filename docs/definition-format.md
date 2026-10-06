@@ -1,6 +1,6 @@
 ---
 created: 2026-10-03
-updated: 2026-10-03
+updated: 2026-10-06
 status: current
 ---
 
@@ -11,13 +11,13 @@ A swarm definition is one text file that says which roles exist, which model eac
 Requirement: [.NET 10 or later](https://dotnet.microsoft.com/download/dotnet/10.0). Nothing else is installed; the tool is run with `dnx`:
 
 ```bash
-dnx Swarm.Cli@<version> -- validate my-swarm.md
-dnx Swarm.Cli@<version> -- render my-swarm.md --out path/to/project
+dnx AgentSwarm.Cli@<version> -- validate my-swarm.md
+dnx AgentSwarm.Cli@<version> -- render my-swarm.md --out path/to/project
 ```
 
-`Swarm.Cli` is a **placeholder** package id: the tool has not been published yet, so for now it is run from a local folder feed (`--add-source <folder>`). See [dnx invocation notes](dnx-invocation-notes.md) for the facts that were actually verified: `dnx.cmd` instead of `dnx` in Git Bash, the `--` separator (everything after it reaches the tool untouched; `--version` without it is eaten by dnx), why `--yes` is never used, and the stale-cache gotcha (dnx reuses an extracted version folder, so bump the version on every re-pack).
+`AgentSwarm.Cli` is the package id (renamed on 2026-10-06 from the placeholder `Swarm.Cli`). The tool has not been published yet, so for now it is run from a local folder feed (`--add-source <folder>`); publishing is set up in [publishing.md](publishing.md). See [dnx invocation notes](dnx-invocation-notes.md) for the facts that were actually verified: `dnx.cmd` instead of `dnx` in Git Bash, the `--` separator (everything after it reaches the tool untouched; `--version` without it is eaten by dnx), why `--yes` is never used, and the stale-cache gotcha (dnx reuses an extracted version folder, so bump the version on every re-pack).
 
-> **Warning: the package ids on this page are NOT REAL.** `Swarm.Cli` (the tool) and `Swarm.Squash` and `Swarm.TestGate` (the sample's tools) are not published, and nobody owns them on nuget.org: on 2026-10-03 nuget.org returned 404 for `Swarm.Cli` and `Swarm.Squash`. Anyone could publish a package under an unclaimed id, and `dnx` would download and run it (dependency confusion). Do not run these ids against nuget.org.
+> **Warning: the package ids on this page are not published yet.** `AgentSwarm.Cli` (the tool) and `AgentSwarm.Squash` and `AgentSwarm.TestGate` (the sample's tools) are not published, and nobody owns them on nuget.org: on 2026-10-06 nuget.org returned 404 for all three. Anyone could publish a package under an unclaimed id, and `dnx` would download and run it (dependency confusion). Do not run these ids against nuget.org.
 >
 > **Review every tool package id before running a runbook.** The runbook's `dnx <package>@<version>` steps download and execute exactly the packages the definition names, so a definition is as trusted as the least trusted package in it.
 >
@@ -69,7 +69,7 @@ description: Deliver an epic with cheap workers, on-demand experts and a batched
 ---
 # Epic delivery swarm
 
-NOT REAL: the package ids Swarm.Squash and Swarm.TestGate below are examples; they are not published and nobody owns them on nuget.org. Review every tool package id before running the runbook.
+NOT REAL: the package ids AgentSwarm.Squash and AgentSwarm.TestGate below are examples; they are not published and nobody owns them on nuget.org. Review every tool package id before running the runbook.
 
 ## orchestrator  (code)
 flow: worker*, gate:batch-green, reviewer, tool:squash
@@ -103,11 +103,11 @@ effort: medium
 Review the diff. Report blocking issues first.
 
 ## tool: squash
-package: Swarm.Squash
+package: AgentSwarm.Squash
 version: 0.1.0
 
 ## tool: testgate
-package: Swarm.TestGate
+package: AgentSwarm.TestGate
 version: 0.1.0
 
 ## gate: batch-green
@@ -132,7 +132,7 @@ Rules:
 The same sample as YAML (abridged; the full file is `tests/Swarm.Tests/Samples/epic-delivery.yaml`):
 
 ```yaml
-# NOT REAL: the package ids Swarm.Squash and Swarm.TestGate below are examples; they are not published and nobody owns them on nuget.org. Review every tool package id before running the runbook.
+# NOT REAL: the package ids AgentSwarm.Squash and AgentSwarm.TestGate below are examples; they are not published and nobody owns them on nuget.org. Review every tool package id before running the runbook.
 name: epic-delivery
 description: Deliver an epic with cheap workers, on-demand experts and a batched test gate.
 roles:
@@ -153,10 +153,10 @@ roles:
   # expert (with isolation: worktree and context: distilled) and reviewer follow the same shape
 tools:
   squash:
-    package: Swarm.Squash
+    package: AgentSwarm.Squash
     version: 0.1.0
   testgate:
-    package: Swarm.TestGate
+    package: AgentSwarm.TestGate
     version: 0.1.0
 gates:
   batch-green:
@@ -197,9 +197,9 @@ var swarm = SwarmBuilder.Define("epic-delivery", "Deliver an epic with cheap wor
         .Tools("Read", "Grep", "Glob", "Bash")
         .MaxTurns(15).Effort("medium")
         .Prompt("Review the diff. Report blocking issues first."))
-    // NOT REAL: Swarm.Squash and Swarm.TestGate are example package ids; review every package id before running the runbook.
-    .Tool("squash", "Swarm.Squash", "0.1.0")
-    .Tool("testgate", "Swarm.TestGate", "0.1.0")
+    // NOT REAL: AgentSwarm.Squash and AgentSwarm.TestGate are example package ids; review every package id before running the runbook.
+    .Tool("squash", "AgentSwarm.Squash", "0.1.0")
+    .Tool("testgate", "AgentSwarm.TestGate", "0.1.0")
     .Gate("batch-green", "test", "testgate")
     .Build();
 
@@ -459,9 +459,9 @@ In Git Bash write `dnx.cmd` instead of `dnx`.
 Save each workflow result to `.docs/runs/epic-delivery.<n>.result.json`; pass the `state` field of the previous workflow's result as the next workflow's `args.state`; tool steps that need the task list read the latest such file.
 
 1. Run workflow `epic-delivery.1` (file `.claude/workflows/epic-delivery.1.js`; pass scriptPath if lookup by name is unavailable) with args: { "tasks": [ "<task 1>", "<task 2>" ] }. Save the result to `.docs/runs/epic-delivery.1.result.json`. If the result has halted: true, or a non-empty unresolved list: STOP and report unresolved (and pending); do not run later steps.
-2. Gate "batch-green" (kind test): run dnx Swarm.TestGate@0.1.0 and write the evidence JSON {"green": true|false, "summary": "..."} to .docs/runs/gates/batch-green.json, then pass it as args.gates["batch-green"]. If green is false: STOP and do not run later steps.
+2. Gate "batch-green" (kind test): run dnx AgentSwarm.TestGate@0.1.0 and write the evidence JSON {"green": true|false, "summary": "..."} to .docs/runs/gates/batch-green.json, then pass it as args.gates["batch-green"]. If green is false: STOP and do not run later steps.
 3. Run workflow `epic-delivery.2` (file `.claude/workflows/epic-delivery.2.js`; pass scriptPath if lookup by name is unavailable) with args: { "state": <the `state` field of the previous workflow's result>, "gates": { "batch-green": <evidence from .docs/runs/gates/batch-green.json> } }. Save the result to `.docs/runs/epic-delivery.2.result.json`. If the result has halted: true, or a non-empty unresolved list: STOP and report unresolved (and pending); do not run later steps. A reject verdict from a review stage also halts the workflow, so this STOP rule covers it.
-4. Run: dnx Swarm.Squash@0.1.0
+4. Run: dnx AgentSwarm.Squash@0.1.0
 ```
 
 ### Rules the generated files follow
@@ -571,7 +571,7 @@ By convention of the runbook (the tool does not create these folders): each work
 ## 5. Limitations and known gaps
 
 - **Not run end to end.** The generated scripts have been exercised under Node with stub hooks and on the real Workflow tool's zero-agent paths (returning a value), but not yet with real agents through a full fan-out, gate and review.
-- **Package ids are placeholders and NOT REAL.** `Swarm.Cli` stands in until a real id is chosen, reserved and published (see the warning at the top). The tools named in the sample (`Swarm.TestGate`, `Swarm.Squash`) are not built yet, so the sample's runbook commands cannot be run today, and must not be run against nuget.org.
+- **Package ids are not published yet.** `AgentSwarm.Cli` and the tools named in the sample (`AgentSwarm.TestGate`, `AgentSwarm.Squash`) are built but not published (see the warning at the top), so the sample's runbook commands must not be run against nuget.org until a release is out. The sample pins version 0.1.0 of each tool; the built versions are in [batch-tools.md](batch-tools.md) and [squash-tool.md](squash-tool.md).
 - **`escalate-to` acts only in fan-out stages.** On a role that is used only as a plain role stage (such as a reviewer), `escalate-to` is accepted but has no effect.
 - **Self-escalation is accepted.** `escalate-to` naming the role itself passes validation.
 - **`claude-` on its own is accepted as a model.** Any value starting with `claude-` is allowed; only the `[A-Za-z][A-Za-z0-9_.-]*` shape is checked later.

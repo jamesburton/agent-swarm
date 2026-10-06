@@ -4,7 +4,7 @@ description: Deliver an epic with cheap workers, on-demand experts and a batched
 ---
 # Epic delivery swarm
 
-NOT REAL: the package ids Swarm.Squash and Swarm.TestGate below are examples; they are not published and nobody owns them on nuget.org. Review every tool package id before running the runbook.
+NOT REAL: the package ids AgentSwarm.Squash and AgentSwarm.TestGate below are examples; they are not published and nobody owns them on nuget.org. Review every tool package id before running the runbook.
 
 ## orchestrator  (code)
 flow: worker*, gate:batch-green, reviewer, tool:squash
@@ -38,11 +38,11 @@ effort: medium
 Review the diff. Report blocking issues first.
 
 ## tool: squash
-package: Swarm.Squash
+package: AgentSwarm.Squash
 version: 0.1.0
 
 ## tool: testgate
-package: Swarm.TestGate
+package: AgentSwarm.TestGate
 version: 0.1.0
 
 ## gate: batch-green

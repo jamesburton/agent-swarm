@@ -1,6 +1,6 @@
 ---
 created: 2026-10-05
-updated: 2026-10-05
+updated: 2026-10-06
 status: current
 ---
 # worktree and epic tools
@@ -14,12 +14,12 @@ Written on 2026-10-05 from the source and by running the built tools (Windows 11
 ## Requirement and package status (NOT REAL)
 
 - Requires the .NET 10 SDK or later (`dnx` ships with it). git 2.31 or later is the plan's floor; squash-landed work is detected only with git 2.38 or later (see [Prune rules](#prune-rules)). Only git 2.54 was run (`unverified` on older versions).
-- **NOT REAL: nothing is published.** `Swarm.Worktree` (and `Swarm.Epic`) are placeholder package ids that nobody owns on nuget.org (checked on 2026-10-05: `https://api.nuget.org/v3-flatcontainer/swarm.worktree/index.json` and `.../swarm.epic/index.json` both returned HTTP 404; see also [definition-format.md](definition-format.md)), so anyone could publish under them and `dnx` would download and run it (dependency confusion). Run them only with `--add-source <your feed>`. Before any publish: reserve an owned id prefix and add license, authors and readme metadata (`dotnet pack` currently prints `The package Swarm.Worktree.0.1.0 is missing a readme`; no metadata was added).
-- Versions as built: `Swarm.Worktree` 0.1.0 and `Swarm.Epic` 0.1.0 (`dotnet pack` of `Swarm.Epic` prints the same missing-readme message). dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)). dnx rules: no `--yes`, `dnx.cmd` in Git Bash, `--` before the tool's own arguments.
+- **Not published yet.** The package ids are `AgentSwarm.Worktree` and `AgentSwarm.Epic` (renamed on 2026-10-06 from the placeholders `Swarm.Worktree` and `Swarm.Epic`); nuget.org returned 404 for all six `AgentSwarm.*` ids on 2026-10-06, so until the first publish anyone could publish under them and `dnx` would download and run it (dependency confusion). Run them only with `--add-source <your feed>` until a release has been published (see [publishing.md](publishing.md)). Package metadata (MIT license, authors, repository, readme) comes from `src/Swarm.Packaging.props`; `dotnet pack` of the solution printed no warnings on 2026-10-06. Run records on this page and in [dnx-invocation-notes.md](dnx-invocation-notes.md) were made before the rename and show the old `Swarm.*` ids.
+- Versions as built: `AgentSwarm.Worktree` 0.1.0 and `AgentSwarm.Epic` 0.1.0. dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)). dnx rules: no `--yes`, `dnx.cmd` in Git Bash, `--` before the tool's own arguments.
 
 ```bash
-dnx.cmd Swarm.Worktree@0.1.0 --add-source FEED -- list
-dnx.cmd Swarm.Epic@0.1.0 --add-source FEED -- status
+dnx.cmd AgentSwarm.Worktree@0.1.0 --add-source FEED -- list
+dnx.cmd AgentSwarm.Epic@0.1.0 --add-source FEED -- status
 ```
 
 - **Shared config.** `worktree` and `epic` read the same `.swarm/batch.json` as testgate, batch and squash (lookup, strict keys and the error format: [batch-tools.md](batch-tools.md#configuration) and [squash-tool.md](squash-tool.md#configuration)). Every tool's loader rejects unknown keys, so a config that uses the `worktree` or `epicTool` section needs `Swarm.TestGate` 0.1.2 or later, `Swarm.Batch` 0.2.1 or later and `Swarm.Squash` 0.1.1 or later. After any config schema change re-pack every tool (with a bumped version), or the older packages reject the file.

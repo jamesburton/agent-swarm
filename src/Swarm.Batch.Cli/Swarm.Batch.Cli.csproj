@@ -1,13 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <Import Project="..\Swarm.Tooling.props" />
+  <Import Project="..\Swarm.Packaging.props" />
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>batch</ToolCommandName>
-    <PackageId>Swarm.Batch</PackageId>
+    <PackageId>AgentSwarm.Batch</PackageId>
     <Version>0.2.1</Version>
-    <Description>NOT REAL placeholder package id (unclaimed on nuget.org). Adaptive batched integration testing with bisect for agent swarms.</Description>
+    <Description>Adaptive batched integration testing with bisect for agent swarms.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Swarm.Git\Swarm.Git.csproj" />

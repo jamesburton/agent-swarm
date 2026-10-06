@@ -67,7 +67,7 @@ public class MarkdownFrontEndTests
     [Theory]
     [InlineData("escalate-to: expert", "escalate_to: expert")]
     [InlineData("model: haiku", "Model: haiku")]
-    [InlineData("package: Swarm.Squash", "package: Swarm.Squash\nagrs: x")]
+    [InlineData("package: AgentSwarm.Squash", "package: AgentSwarm.Squash\nagrs: x")]
     [InlineData("kind: test\ntool: testgate", "kind: test\ntol: testgate")]
     [InlineData(Flow, "flows: worker*")]
     [InlineData("version: 0.1.0", "version: 0.1.0\nstray prose")]

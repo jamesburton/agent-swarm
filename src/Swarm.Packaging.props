@@ -1,0 +1,16 @@
+<Project>
+  <!-- Shared nuget.org metadata for the six dnx tool packages (imported by each *.Cli project). -->
+  <PropertyGroup>
+    <Authors>James Burton</Authors>
+    <Copyright>Copyright (c) 2026 James Burton</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/jamesburton/agent-swarm</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/jamesburton/agent-swarm</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>agent-swarm;claude-code;dotnet-tool;dnx;git;worktree</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)PACKAGE-README.md" Pack="true" PackagePath="README.md" Visible="false" />
+  </ItemGroup>
+</Project>

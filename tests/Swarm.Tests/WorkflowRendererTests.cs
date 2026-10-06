@@ -124,13 +124,13 @@ public class WorkflowRendererTests
         var md = Steps();
         Assert.Equal(GeneratedMarker.MarkdownLine, md.Split('\n')[0]);
         Assert.Equal("Run these in order. Deterministic steps run in the main session or CI; each workflow is launched with the Workflow tool and the arguments shown.", md.Split('\n')[1]);
-        Assert.Contains("dnx Swarm.Squash@0.1.0", md);
+        Assert.Contains("dnx AgentSwarm.Squash@0.1.0", md);
         Assert.DoesNotContain("--yes", md);
         Assert.DoesNotContain('\r', md);
         Assert.Contains("dnx.cmd", md);
         Assert.Contains(".docs/runs/gates/batch-green.json", md);
         Assert.Contains("{\"green\": true|false, \"summary\": \"...\"}", md);
-        var order = new[] { "Run workflow `epic-delivery.1` (file `.claude/workflows/epic-delivery.1.js`; pass scriptPath if lookup by name is unavailable) with args: ", "Gate \"batch-green\" (kind test): run dnx Swarm.TestGate@0.1.0 and write", "Run workflow `epic-delivery.2` (file", "Run: dnx Swarm.Squash@0.1.0" }
+        var order = new[] { "Run workflow `epic-delivery.1` (file `.claude/workflows/epic-delivery.1.js`; pass scriptPath if lookup by name is unavailable) with args: ", "Gate \"batch-green\" (kind test): run dnx AgentSwarm.TestGate@0.1.0 and write", "Run workflow `epic-delivery.2` (file", "Run: dnx AgentSwarm.Squash@0.1.0" }
             .Select(x => md.IndexOf(x, StringComparison.Ordinal)).ToArray();
         Assert.All(order, i => Assert.True(i >= 0));
         Assert.Equal(order.OrderBy(i => i), order);
@@ -141,7 +141,7 @@ public class WorkflowRendererTests
 
     [Fact] public void ToolArgsAppearInRunbook()
     {
-        Assert.Contains("Run: dnx Swarm.Squash@0.1.0 -- --base origin/main --dry-run=true", Steps(WithToolArgs("--base", "origin/main", "--dry-run=true")));
+        Assert.Contains("Run: dnx AgentSwarm.Squash@0.1.0 -- --base origin/main --dry-run=true", Steps(WithToolArgs("--base", "origin/main", "--dry-run=true")));
     }
 
     [Theory]
@@ -349,8 +349,8 @@ public class WorkflowRendererTests
 
     [Fact] public void ToolArgsAreSeparatedWithDoubleDashAndToolWithoutArgsHasNone()
     {
-        Assert.Contains("Run: dnx Swarm.Squash@0.1.0 -- --slots 2\n", Steps(WithToolArgs("--slots", "2")));
-        Assert.Contains("Run: dnx Swarm.Squash@0.1.0\n", Steps());
+        Assert.Contains("Run: dnx AgentSwarm.Squash@0.1.0 -- --slots 2\n", Steps(WithToolArgs("--slots", "2")));
+        Assert.Contains("Run: dnx AgentSwarm.Squash@0.1.0\n", Steps());
     }
 
     [Theory] [InlineData("--yes")] [InlineData("-y")] [InlineData("--YES")]
@@ -360,7 +360,7 @@ public class WorkflowRendererTests
     [Fact] public void GateStepPrintsTheToolsPinnedCommandViaTheSameBuilder()
     {
         var md = Steps(WithTool("testgate", t => t with { Args = ["--slots", "2"] }));
-        Assert.Contains("Gate \"batch-green\" (kind test): run dnx Swarm.TestGate@0.1.0 -- --slots 2 and write", md);
+        Assert.Contains("Gate \"batch-green\" (kind test): run dnx AgentSwarm.TestGate@0.1.0 -- --slots 2 and write", md);
     }
 
     [Fact] public void GateWithMissingToolIsRejectedWithOneLine() =>
@@ -372,7 +372,7 @@ public class WorkflowRendererTests
     [Fact] public void HostileGateAndToolNamesAndPackagesAreRejected()
     {
         Assert.Contains("not a safe file name", Msg(() => WorkflowRenderer.Render(Sample() with { Gates = [new Gate("a b\n$(x)", "test", "squash")], Flow = [new Stage(StageType.Fanout, "worker"), new Stage(StageType.Gate, "a b\n$(x)")] })));
-        Assert.Contains("unsafe", Msg(() => WorkflowRenderer.Render(WithTool("squash", t => t with { Package = "Swarm.Squash; rm -rf /" }))));
+        Assert.Contains("unsafe", Msg(() => WorkflowRenderer.Render(WithTool("squash", t => t with { Package = "AgentSwarm.Squash; rm -rf /" }))));
         Assert.Contains("unsafe", Msg(() => WorkflowRenderer.Render(Sample() with { Gates = [new Gate("batch-green", "te st", "testgate")] })));
     }
 

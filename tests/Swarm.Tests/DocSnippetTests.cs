@@ -33,9 +33,9 @@ public class DocSnippetTests
                 .Tools("Read", "Grep", "Glob", "Bash")
                 .MaxTurns(15).Effort("medium")
                 .Prompt("Review the diff. Report blocking issues first."))
-            // NOT REAL: Swarm.Squash and Swarm.TestGate are example package ids; review every package id before running the runbook.
-            .Tool("squash", "Swarm.Squash", "0.1.0")
-            .Tool("testgate", "Swarm.TestGate", "0.1.0")
+            // NOT REAL: AgentSwarm.Squash and AgentSwarm.TestGate are example package ids; review every package id before running the runbook.
+            .Tool("squash", "AgentSwarm.Squash", "0.1.0")
+            .Tool("testgate", "AgentSwarm.TestGate", "0.1.0")
             .Gate("batch-green", "test", "testgate")
             .Build();
 

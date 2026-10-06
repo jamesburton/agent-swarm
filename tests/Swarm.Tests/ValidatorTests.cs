@@ -110,7 +110,7 @@ public class ValidatorTests
         Assert.Equal($"tool 'squash': package '{p.Replace('\n', '?')}' is not a NuGet package id (letters, digits, '_', '.' or '-', starting with a letter or digit)",
             First(Make(tools: [new ToolDef("squash", p, "1.0.0", [])])));
 
-    [Theory] [InlineData("Pkg.Id")] [InlineData("a")] [InlineData("Swarm.TestGate")] [InlineData("1abc")] [InlineData("a_b-c")]
+    [Theory] [InlineData("Pkg.Id")] [InlineData("a")] [InlineData("AgentSwarm.TestGate")] [InlineData("1abc")] [InlineData("a_b-c")]
     public void NuGetStylePackageIds_AreAccepted(string p) =>
         Assert.Empty(Validator.Check(Make(tools: [new ToolDef("squash", p, "1.0.0", [])])));
 }

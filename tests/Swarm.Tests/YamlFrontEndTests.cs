@@ -58,7 +58,7 @@ public class YamlFrontEndTests
     [Theory]
     [InlineData("    model: haiku", "    modle: haiku", "unknown key 'modle' in role 'worker'")]
     [InlineData("    kind: code\n", "    kind: code\n    colour: red\n", "unknown key 'colour' in role 'orchestrator'")]
-    [InlineData("    package: Swarm.TestGate", "    package: Swarm.TestGate\n    owner: me", "unknown key 'owner' in tool 'testgate'")]
+    [InlineData("    package: AgentSwarm.TestGate", "    package: AgentSwarm.TestGate\n    owner: me", "unknown key 'owner' in tool 'testgate'")]
     [InlineData("    tool: testgate", "    tool: testgate\n    when: always", "unknown key 'when' in gate 'batch-green'")]
     [InlineData("roles:\n", "colour: red\nroles:\n", "unknown top-level key 'colour'")]
     public void UnknownKeys_NameKeyAndOwner_NotInternalTypes(string from, string to, string message)
@@ -133,7 +133,7 @@ public class YamlFrontEndTests
     public void AnchorsInsideSequences_AreRejected(string from, string to) =>
         Assert.Contains("anchors/aliases/merge keys are not supported", Fails(Sample.Replace(from.Replace("@Q@", "\""), to.Replace("@Q@", "\""))).Message);
 
-    [Fact] public void NullToolBody_Throws() => Assert.Contains("key 'squash' has no value", Fails(Sample.Replace("  squash:\n    package: Swarm.Squash\n    version: 0.1.0\n", "  squash:\n")).Message);
+    [Fact] public void NullToolBody_Throws() => Assert.Contains("key 'squash' has no value", Fails(Sample.Replace("  squash:\n    package: AgentSwarm.Squash\n    version: 0.1.0\n", "  squash:\n")).Message);
 
     [Fact] public void NullGateBody_Throws() => Assert.Contains("key 'batch-green' has no value", Fails(Sample.Replace("  batch-green:\n    kind: test\n    tool: testgate\n", "  batch-green:\n")).Message);
 

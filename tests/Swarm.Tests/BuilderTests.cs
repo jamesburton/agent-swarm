@@ -15,8 +15,8 @@ public class BuilderTests
             .Prompt("You are given a distilled summary: goal, state, files, failed attempts with reasons, open question. Do not repeat the listed failed attempts."))
         .Llm("reviewer", r => r.Model("sonnet").Description("Reviews a green batch diff for correctness and style.")
             .Tools("Read", "Grep", "Glob", "Bash").MaxTurns(15).Effort("medium").Prompt("Review the diff. Report blocking issues first."))
-        .Tool("squash", "Swarm.Squash", "0.1.0")
-        .Tool("testgate", "Swarm.TestGate", "0.1.0")
+        .Tool("squash", "AgentSwarm.Squash", "0.1.0")
+        .Tool("testgate", "AgentSwarm.TestGate", "0.1.0")
         .Gate("batch-green", "test", "testgate")
         .Build();
 
@@ -29,7 +29,7 @@ public class BuilderTests
             .Llm("worker", r => r.Model("haiku").Description("d").Tools("Read", "Edit").EscalateTo("expert").Prompt("p"))
             .Llm("expert", r => r.Model("opus").Description("d").Prompt("p"))
             .Llm("reviewer", r => r.Model("sonnet").Description("d").Prompt("p"))
-            .Tool("squash", "Swarm.Squash", "0.1.0")
+            .Tool("squash", "AgentSwarm.Squash", "0.1.0")
             .Gate("batch-green", "test", "squash")
             .Build();
         Assert.Equal(new[] { StageType.Fanout, StageType.Gate, StageType.Role, StageType.Tool }, b.Flow.Select(f => f.Type));
@@ -42,7 +42,7 @@ public class BuilderTests
     {
         Assert.Equal(Shape(TestSamples.Parsed()), Shape(Sample()));
         Assert.Equal(Shape(Swarm.Formats.YamlFrontEnd.Parse(TestSamples.Yaml())), Shape(Sample()));
-        Assert.Contains("T:testgate,Swarm.TestGate,0.1.0,", Shape(Sample()));
+        Assert.Contains("T:testgate,AgentSwarm.TestGate,0.1.0,", Shape(Sample()));
         Assert.Contains("G:batch-green,test,testgate", Shape(Sample()));
         Assert.Contains("R:expert,Llm,opus,Solves what a worker could not, from a distilled hand-off.,Read;Edit;Grep;Glob;Bash,40,high,worktree,,distilled,", Shape(Sample()));
     }

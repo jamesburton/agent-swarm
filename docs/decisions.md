@@ -163,3 +163,12 @@ Cross-plan facts:
 ## Build ledgers (2026-10-06)
 
 The subagent-driven build ledgers (pre-flight scans, rulings with their cost if wrong, per-task review outcomes and deferred minors) are archived verbatim: [definition + renderer](swarm-renderer-ledger.md), [testgate + batch](testgate-batch-ledger.md), [squash](squash-ledger.md), [worktree + epic](worktree-epic-ledger.md). The worktree + epic ledger ends at Task 9; Task 10 and the Plan C final-review fix wave are recorded in the commits `2289712` and `3b9c6db` and in the entries above.
+
+## Publishing (2026-10-06)
+
+| Decision | Detail |
+|---|---|
+| Package ids | `AgentSwarm.Cli`, `.TestGate`, `.Batch`, `.Squash`, `.Worktree`, `.Epic`, replacing the `Swarm.*` placeholders. `Swarm.` is too generic to reserve as a prefix; `AgentSwarm.` can be. All six returned 404 on nuget.org on 2026-10-06. Command names, projects and namespaces are unchanged. |
+| Credentials | nuget.org Trusted Publishing from GitHub Actions (OIDC, one-hour key); no stored API key. See [publishing.md](publishing.md). |
+| Trigger | A `v*` tag push or a manual run. The publish job runs in the `release` environment and pushes with `--skip-duplicate`, so only tools with a bumped `<Version>` are published. |
+| License and metadata | MIT, shared metadata in `src/Swarm.Packaging.props`. The internal libraries are bundled inside each tool package and are not packable. |

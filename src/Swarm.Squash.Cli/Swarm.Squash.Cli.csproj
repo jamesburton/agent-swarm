@@ -1,13 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <Import Project="..\Swarm.Tooling.props" />
+  <Import Project="..\Swarm.Packaging.props" />
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>squash</ToolCommandName>
-    <PackageId>Swarm.Squash</PackageId>
+    <PackageId>AgentSwarm.Squash</PackageId>
     <Version>0.1.1</Version>
-    <Description>NOT REAL placeholder package id (unclaimed on nuget.org; dependency-confusion risk). Lands a task branch on its epic as one trailer-stamped commit, for agent swarms.</Description>
+    <Description>Lands a task branch on its epic as one trailer-stamped commit, for agent swarms.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Swarm.Git\Swarm.Git.csproj" />

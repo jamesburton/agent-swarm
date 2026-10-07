@@ -30,9 +30,9 @@ The six dnx tools are published by the GitHub Actions workflow [`.github/workflo
 |---|---|
 | nuget.org Trusted Publishing policy | Repository Owner `jamesburton`, Repository `agent-swarm`, Workflow File `publish.yml`, Environment `release`. Its scopes allow new packages and new versions for `AgentSwarm.*`. |
 | GitHub environment `release` | Deployments only from the branch `main` and tags matching `v*`. The environment secret `NUGET_USER` holds the nuget.org profile name (not the email address). |
-| GitHub environment `release`, once the repository is public | Add yourself as a required reviewer, so every publish waits for an approval after the tests pass. GitHub's free plan does not offer required reviewers on private repositories (the API returned HTTP 422 on 2026-10-06). |
+| GitHub environment `release` | Required reviewer: the repository owner, so every publish waits for an approval after the tests pass (added on 2026-10-07 once the repository was public; GitHub's free plan does not offer it on private repositories, where the API returned HTTP 422). |
 
-- **Private repository caveat.** On a private repository the nuget.org policy is only **temporarily active for 7 days**. It becomes permanent after the first successful publish, which locks it to the repository's and owner's GitHub ids. If no publish happens in the window, restart it from the policy page. On a public repository the policy is active at once.
+- **Policy activation.** The repository has been public since 2026-10-07. The policy was created while it was private, so nuget.org may still show it as **temporarily active (7 days)** until the first successful publish locks it to the repository's and owner's GitHub ids. If the window lapses, restart it from the policy page.
 - **Prefix reservation (recommended).** Ask nuget.org to reserve the `AgentSwarm.` prefix ([ID prefix reservation](https://learn.microsoft.com/en-us/nuget/nuget-org/id-prefix-reservation)), so nobody else can publish under it.
 
 The workflow file name (`publish.yml`), the environment name (`release`) and the repository owner and name must match the nuget.org policy. Renaming any of them stops publishing until the policy is updated.
@@ -54,7 +54,7 @@ nuget.org validates and indexes a new package before `dnx` can find it, which us
 Before:
 
 - [ ] All six `.csproj` files say `<Version>0.1.0</Version>`, and `CHANGELOG.md` has the 0.1.0 section.
-- [ ] The repository is public, and `release` has a required reviewer.
+- [x] The repository is public, and `release` has a required reviewer (2026-10-07).
 - [ ] The `AgentSwarm.` prefix reservation has been requested.
 
 Release:

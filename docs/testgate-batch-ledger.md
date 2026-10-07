@@ -4,7 +4,7 @@ updated: 2026-10-06
 status: archived
 ---
 # SDD ledger — plan: docs/plans/2026-10-03-testgate-batch.md
-Branch swarm/testgate-batch (worktree C:/Development/agent-swarm-wt/testgate-batch), base main @ 74f8f59 (+13ee4d8 gitignore). Spec: docs/specs/2026-10-02-agent-swarm-design.md (+ docs/decisions.md Spike 1 completion).
+Branch swarm/testgate-batch (worktree C:/Development/agent-swarm-wt/testgate-batch), base main @ 537edc9 (+f39ddb8 gitignore). Spec: docs/specs/2026-10-02-agent-swarm-design.md (+ docs/decisions.md Spike 1 completion).
 Preflight: table in preflight.md (4 High, 3 Medium, 11 Low; code compiled+run in scratch by scanner). Apply ALL 15 'Rulings to apply' at the end of preflight.md; each implementer reads the rulings relevant to their task from preflight.md.
 Ruling P1: T11 xUnit2013 -> Assert.Single — breaks -warnaserror build otherwise — cost if wrong: none.
 Ruling P2: T3 ProcessRunner decodes stdout/stderr as UTF-8 (no BOM) — testhost code page 850 breaks non-ASCII names — cost: none.
@@ -14,60 +14,60 @@ Ruling P5: T2 fixtures (TempRepo.RunGit/HasFile, FixtureTests.RunFake) move onto
 Ruling P6-P15: see preflight.md items 6-15 (FileTree no-op assertion; pack to throwaway dir or 0.1.1; LockInfo SchemaVersion; config-not-found message; StyleCop blank line; --base dropped + returned.jsonl rename noted in T13; small helpers; CliHost unrecognized-arg preference; 15 min test-run note; drop unused Consumes) — cost: low.
 Note: full Swarm.Tools.Tests run ~15 min on this box; implementers run focused tests while iterating and the full suite once before the final commit.
 Task 1: minor (deferred): FileTree.cs:150 attribute reset not under SharedFile.Retry; read-only dirs not cleared; TextLines allocs.
-Task 1: complete (commits 13ee4d8..78bd947, review clean)
+Task 1: complete (commits f39ddb8..d01f429, review clean)
 Task 2: minor (deferred): TempRepo ctor leaks sandbox if git init throws; FakeSuite.DllPath static init; fixture Dispose duplication; coverage of .fail ordering/options.
-Task 2: complete (commits 78bd947..2e8b14b, review clean)
+Task 2: complete (commits d01f429..b85a731, review clean)
 Task 3: review found 1 Important (OnLine can fire after Run returns/throws; closed-flag guard), minors deferred: KillTree misses AggregateException; no ThrowIfCancellationRequested before Start; timeout race Killed flag; dotted names skip PATHEXT; PATH override ignored in Resolve; .cmd arg quoting (BatBadBut) undocumented; orphans survive tree kill (consider Job Object when Task 8 runs real suites); non-Windows early-return comment.
-Task 3: fix round 1/5 (1 addressed, 0 open — closed-flag guard; commits 0195d49..420c983). New tests are smoke pins only (cannot fail without the guard on Windows); optional seam (extract Collect) deferred. Note: Timeout_KillsWholeTree flaked once on a busy machine (3 s timeout fires before grandchild starts) — watch for flakiness; consider widening the test timeout.
+Task 3: fix round 1/5 (1 addressed, 0 open — closed-flag guard; commits ad2ad6e..c3357b5). New tests are smoke pins only (cannot fail without the guard on Windows); optional seam (extract Collect) deferred. Note: Timeout_KillsWholeTree flaked once on a busy machine (3 s timeout fires before grandchild starts) — watch for flakiness; consider widening the test timeout.
 Task 3: minor (deferred): OrphanOutputAfterGrace test sleeps 6 s; OnLine invoked under lock(gate).
-Task 3: complete (commits 2e8b14b..420c983, review clean after 1 fix round)
+Task 3: complete (commits b85a731..c3357b5, review clean after 1 fix round)
 Task 4: minor (deferred): duplicated Norm expression in test helper; no tests for empty stateDir branch or Locate on non-existent dir.
-Task 4: complete (commits 420c983..55f3c89, review clean)
+Task 4: complete (commits c3357b5..7f7f9f2, review clean)
 Task 5: minor (deferred): missing-file test only checks 'not found' (assert prefix + hint); File.Exists called twice, DefaultRelativePath unused; ReadAllText I/O errors escape raw; flag-origin errors prefixed with file source; coverage gaps for unknown key inside batch, stringified numbers, ApplyTo on other fields; TestConfig.Write not LF/SwarmJson.
 Task 5: cross-task check resolved — 200-char path guard lives in StatePaths.Guard (Task 4), state-dir/worktree-root resolved there.
-Task 5: complete (commits 55f3c89..bd0dc14, review clean)
+Task 5: complete (commits 7f7f9f2..c5e3be1, review clean)
 Task 6: review found 1 Important (crash-truncated JSONL fragment corrupts middle of file; ReadAll throws). Ruling T6-1: Append prepends '\n' if last byte isn't '\n'; ReadAll skips malformed/null lines (crash fragments) — cost: a genuinely corrupt record is dropped silently instead of failing loudly. Fix round 1 dispatched.
 Task 6: minor (deferred): RunDirectories.Create non-atomic claim for user --run-id; Prune lacks explicit current-run guard; SwarmJson temp name collision/leak; test gaps (Progress levels, multi-task ReadLatest, WriteFile overwrite); ReturnLedger not thread-safe (note for single-threaded batch); nested records lack SchemaVersion (intended).
-Task 6: fix round 1/5 (1 addressed, 0 open — Append LF guard + tolerant ReadAll; commits 84a4696..b920a17)
+Task 6: fix round 1/5 (1 addressed, 0 open — Append LF guard + tolerant ReadAll; commits e7dfce6..858b709)
 Task 6: minor (deferred, TRIAGE AT FINAL REVIEW — likely fix): unrequested JsonlFile.Append retry change 400x10ms -> 2000x2ms: on Windows Sleep(2) rounds to ~15.6 ms so worst case ~31 s stall vs ~6 s; revert to 400,10. Also ReadAll comment 'schema problems are not skipped' is inaccurate (type mismatches also JsonException-skipped). SharedFile.IsTransient retries UnauthorizedAccessException (pre-existing).
-Task 6: complete (commits bd0dc14..b920a17, review clean after 1 fix round)
+Task 6: complete (commits c5e3be1..858b709, review clean after 1 fix round)
 Task 7: review found 3 Important (stale reclaim ignores live local holder; TryCreate swallows all IO errors -> misleading exit 5, should be exit 4; failure after CreateNew leaks undeletable lock). Fix round 1 dispatched (all three).
 Task 7: minor (deferred): IsStale mtime check-then-read race (sentinel 1601 -> phantom stale/Reclaimed); release deletes by path not identity (mostly closed by fix #1); Beat swallows IO errors silently; IsHolderAlive returns false on Win32Exception (should be alive/unknown); leaked lease heartbeats forever (document); test gaps (cancellation, dead-pid wait, two-reclaimer, Heartbeat test timing/pool starvation, TryAcquire-null assertion passes without heartbeat on Windows).
-Task 7: fix round 1/5 (3 addressed, 1 NEW Important open — TryCreate: vanished-file race after IOException gives spurious exit-4/5 under contention; commits 207d7f3..8b29193). Fix round 2 dispatched.
+Task 7: fix round 1/5 (3 addressed, 1 NEW Important open — TryCreate: vanished-file race after IOException gives spurious exit-4/5 under contention; commits 6b0f003..09724f9). Fix round 2 dispatched.
 Task 7: observation (deferred): Beat() swallows heartbeat failures silently; a live local holder with a dead heartbeat now holds its slot until it exits (intended; remote hosts still reclaim); fix-1 test timing: EnvironmentalCreateFailure test takes ~200 ms retry on Windows.
-Task 7: fix round 2/5 (1 addressed, 0 open — vanished-file retry; commits 8b29193..18408a3). No test for the race (no seam); accepted.
-Task 7: complete (commits b920a17..18408a3, review clean after 2 fix rounds)
+Task 7: fix round 2/5 (1 addressed, 0 open — vanished-file retry; commits 09724f9..b42d5c3). No test for the race (no seam); accepted.
+Task 7: complete (commits 858b709..b42d5c3, review clean after 2 fix rounds)
 Task 8: concern: NU5039 pack warning (no readme) — package metadata decision at Task 12/13 (human: license/authors/readme before publish).
 Task 8: minor (deferred, TRIAGE AT FINAL REVIEW — likely fix first three): (a) CtrlCScope: second Ctrl+C swallowed + late Ctrl+C can hit disposed CTS (ObjectDisposedException on signal thread); (b) Ctrl+C when child exits first is reported as child failure (exit 1) not cancelled (4) — check token after Run; (c) option-like-token check runs after Resolve (outside-repo/bad-config gives 3/2 instead of usage); (d) 'killed' never true; (e) failed/cancelled/timeout runs missing from events log; (f) event log written before stdout JSON (IOException loses result); (g) CliHost matches English 'Unrecognized' text; (h) suite output buffered 3x; (i) test gaps: cancel releases slot, --cwd, default label, relative --config/--state.
-Task 8: complete (commits 18408a3..3fd6772, review clean)
+Task 8: complete (commits b42d5c3..9c5614d, review clean)
 Flaky tests seen under load: SlotSemaphoreTests.Heartbeat_KeepsLockFreshPastExpiry (failed in Task 9 full run); Timeout_KillsWholeTree. Triage at final review (widen timings / avoid pool starvation).
 Task 9: minor (deferred): TasksFile.cs:232 unknown dependsOn echoed unvalidated (multi-line error possible; guard with SafeName/sanitise — likely fix); ReadAllText IOException escapes as non-ToolException; test gaps (empty id/branch, self-dependency, more branch chars, diamond stacks, Halve edge cases); NextSize no clamp-up to min; Halve on single unit unguarded. Cross-task check: error hint references docs/batch-tools.md#tasks-file — Task 13 must create that anchor.
-Task 9: complete (commits 3fd6772..8a13d4f, review clean)
+Task 9: complete (commits 9c5614d..3599c75, review clean)
 Task 10: review found 2 Important (rebase.updateRefs=true moves worker branch in RebaseCopy; TouchIndex under-reports renames, quoted names need -z/--no-renames). Fix round 1 dispatched.
 Task 10: minor (deferred; carry to Task 11 / final triage): (CARRY TO TASK 11) missing task branch: Integrate records a missing BranchRef as UnitConflict with empty Files, and RebaseCopy would then throw exit 4 for the whole batch — BatchEngine must check branch existence BEFORE Integrate and return that task as bad-input per R9/decisions (rest continue); RebaseCopy lacks guard copyBranch != task.Branch and a requeued task whose Branch is already the rebased copy gets its branch deleted on a 2nd attempt (maxRebaseAttempts up to 3) — likely fix; commit.gpgSign/hooks can break tool-owned commits and be misclassified as conflicts (pin -c commit.gpgSign=false); branch -D result ignored; update-ref failure message drops git stderr; epic branch being rebased elsewhere not detected; IsRegistered 8.3 short path mismatch; worktree prune side effect on other worktrees; merge commits widen touch sets; test gaps (HEAD.lock, pre-existing copy branch, deletion case, missing branch).
-Task 10: fix round 1/5 (2 addressed, 0 open; commits 37e1b52..4bc6325). Minor (deferred): TouchIndex TrimEnd('\r','\n') no-op; no test for non-zero-exit throw path; updateRefs test needs git>=2.38.
-Task 10: complete (commits 8a13d4f..4bc6325, review clean after 1 fix round)
+Task 10: fix round 1/5 (2 addressed, 0 open; commits 84c7d47..4506ddb). Minor (deferred): TouchIndex TrimEnd('\r','\n') no-op; no test for non-zero-exit throw path; updateRefs test needs git>=2.38.
+Task 10: complete (commits 3599c75..4506ddb, review clean after 1 fix round)
 Task 11 note: copy name stays rebased/E1/<id> on every attempt (retry deletes earlier copy; worker branch never touched) — naming decision deferred (ruling: acceptable, maxRebaseAttempts default 1).
 Task 11: review found 1 Important (requeued copies re-enter queue in REVERSE order via Insert(0) per entry -> wrong task blamed; also not-attempted mix) + minor #7 pulled into the round (copy name can collide with another task's branch -> branch -D deletes it; extends carried (b)). Fix round 1 dispatched.
 Task 11: minor (deferred; triage at final): inferred-red reason names the green suite log; partial stack landing (Plan B lander) can auto-rebase a multi-task unit contrary to R10 (base `single` on original unit size) — IMPORTANT FOR PLAN B; partial landings not tree-checked in Verify; non-ToolException lander exception skips summary.json; no in-run ResetTo (try/finally around Loop); aborted-run summary counts pending/requeued as returned not unprocessed; test name RequeuedCopyFailsAgain_... claims more than it asserts; implementer report presents original[...] as a change though it was in the brief.
 Flake: FakeSuite_EmptyFailFileIsRed failed once under load (passes alone) — add to flaky list; triage at final review.
-Task 11: fix round 1/5 (2 addressed, 0 open; commits e9a6ad2..281e56e). Minor (deferred, likely fix): EnsureNoCopyNameClash uses Ordinal — Windows refs are case-insensitive (use OrdinalIgnoreCase); ref prefix clashes (branch named 'rebased', 'rebased/E1', 'rebased/E1/T2/x') not caught -> git error mid-run.
-Task 11: complete (commits 4bc6325..281e56e, review clean after 1 fix round)
+Task 11: fix round 1/5 (2 addressed, 0 open; commits c7bc802..2fed9f9). Minor (deferred, likely fix): EnsureNoCopyNameClash uses Ordinal — Windows refs are case-insensitive (use OrdinalIgnoreCase); ref prefix clashes (branch named 'rebased', 'rebased/E1', 'rebased/E1/T2/x') not caught -> git error mid-run.
+Task 11: complete (commits 4506ddb..2fed9f9, review clean after 1 fix round)
 Task 12: minor (deferred): HeldSlot helper would remove 4 duplicated SlotSemaphore setups; --experimental-fixed range check duplicated CLI/engine; Run_EpicFlagOverridesConfig weak; smoke-test report has no pasted transcripts (claimed, plausible; final reviewer may re-run). Packages are 0.1.1 (both), packs in .docs/feed (gitignored). NOTE for Plan B: batch Program.Run(args,stdout,stderr,cwd,ILander) overload exists; Main passes FastForwardLander.
-Task 12: complete (commits 281e56e..0c83d92, review clean)
+Task 12: complete (commits 2fed9f9..cc005e5, review clean)
 Task 13: review found 2 Important doc errors (testgate child output shown at normal not detail; reclaim --force deletes stale REMOTE locks). Fix round 1 dispatched.
 Task 13: minor (deferred to final fix wave — doc accuracy, cheap): inference condition overstated (left half green AND lands cleanly); 'failed testgate run leaves no entry' should say 'fails to start'; 'null values are errors' except worktreeRoot; summary.json 'written last' (run-end event follows); leading '-' first-token rule broader than documented + missing --cwd dir exit 2 not in exit-2 row; heading 'Working directory encoding' should be 'Output encoding'; dnx smoke context (scratch .swarm/batch.json slots:1, testCommand git --version; '9 s' per-call overhead vs row 4's 23 s).
 Ruling P-final: doubled '.docs/runs/runs/<id>' path is mandated by plan R3+R5 (stateDir '.docs/runs' + 'runs/<runId>'), not a code bug — naming wart FOR THE HUMAN: consider default stateDir '.docs/swarm' or subfolder 'history'. Cost if left: confusing path only.
-Task 13: fix round 1/5 (2 addressed, 0 open; commits 2122bff..a7821fc).
-Task 13: complete (commits 0c83d92..a7821fc, review clean after 1 fix round)
-ALL 13 TASKS COMPLETE. Next: final whole-branch review (opus) over 74f8f59..HEAD, then ONE fix wave + one scoped re-review.
+Task 13: fix round 1/5 (2 addressed, 0 open; commits 852f8fe..ee2380a).
+Task 13: complete (commits cc005e5..ee2380a, review clean after 1 fix round)
+ALL 13 TASKS COMPLETE. Next: final whole-branch review (opus) over 537edc9..HEAD, then ONE fix wave + one scoped re-review.
 Final review (opus): Ready to merge WITH FIXES — 0 Critical, 6 Important (I1 non-ToolException skips summary; I2 NotAttempted w/o Failure loops forever; I3 copy-name clash case/prefix; I4 gpgSign/hooks misclassified as conflicts; I5 Ctrl+C races/exit mapping; I6 bisect inference tree check), triage list in final-review.md. ONE fix wave dispatched (opus, agent a7264189c646f9445). Parked with reasons: partial-landing tree check (Plan B TestedChain), in-run ResetTo (next run's Ensure cleans), aborted-run summary counts (cosmetic).
 Plan B/C compat (must fix in the PLAN TEXT before executing Plan B): Task 1 Step 5 wholesale GitRunner.cs replacement drops HeadsRef + must keep new ToolIdentity (gpgSign) — build break; Task 1 Step 4 duplicates StandardOutputEncoding initializer (CS1912) — executed code already sets UTF-8. Everything else matched.
-Fix wave done: a7821fc..05dd5ce (10 commits); tests 207/207 + 541/541. Scoped re-review next (no second wave).
+Fix wave done: ee2380a..8dfff7c (10 commits); tests 207/207 + 541/541. Scoped re-review next (no second wave).
 Final re-review (opus): all findings addressed; 0 Critical, 0 Important. Parked with rulings:
 Ruling F1: M1 (a failure inside Finish re-enters Finish via the I1 catch-all; summary may be rewritten/second run-end) — parked: small impact, the on-disk summary still records a failure; fix is to compute (exit,note) in the catches and call Finish once after the try — cost if wrong: a duplicate run-end event on a double I/O failure.
 Ruling F2: M2 (cancellation can be reported as 'unexpected failure') — parked, see final-rereview.md; cost if wrong: wrong note text on an exit-4 cancel path.
 Ruling F3: run-start event write and TaskUnits.Build run outside the try after RunDirectories.Create — parked (pre-existing, rare I/O failure) — cost: a summary-less run dir.
 Ruling F4 (POLICY — FOR THE HUMAN): integration merge uses --no-verify and the fast-forward lander lands the tool's merge commits on the epic, so local commit-msg policies never see those commits; if the team enforces commit-message rules, Plan B's squash lander should build compliant messages — cost: policy-violating merge commits on epic branches.
 Ruling F5 (FOR THE HUMAN): default state layout yields '.docs/runs/runs/<id>' (plan R3+R5) — consider default stateDir '.docs/swarm' or subfolder 'history' — cost: confusing path only.
-Plan A DONE at head 05dd5ce (branch swarm/testgate-batch, NOT merged to main, nothing pushed). Plan B/C to be stacked on this branch to avoid merging without approval.
+Plan A DONE at head 8dfff7c (branch swarm/testgate-batch, NOT merged to main, nothing pushed). Plan B/C to be stacked on this branch to avoid merging without approval.

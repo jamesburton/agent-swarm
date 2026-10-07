@@ -1,6 +1,6 @@
 ---
 created: 2026-10-03
-updated: 2026-10-06
+updated: 2026-10-07
 status: current
 ---
 
@@ -571,7 +571,7 @@ By convention of the runbook (the tool does not create these folders): each work
 ## 5. Limitations and known gaps
 
 - **Not run end to end.** The generated scripts have been exercised under Node with stub hooks and on the real Workflow tool's zero-agent paths (returning a value), but not yet with real agents through a full fan-out, gate and review.
-- **Package ids are not published yet.** `AgentSwarm.Cli` and the tools named in the sample (`AgentSwarm.TestGate`, `AgentSwarm.Squash`) are built but not published (see the warning at the top), so the sample's runbook commands must not be run against nuget.org until a release is out. The sample pins version 0.1.0 of each tool; the built versions are in [batch-tools.md](batch-tools.md) and [squash-tool.md](squash-tool.md).
+- **Package ids are not published yet.** `AgentSwarm.Cli` and the tools named in the sample (`AgentSwarm.TestGate`, `AgentSwarm.Squash`) are built but not published (see the warning at the top), so the sample's runbook commands must not be run against nuget.org until a release is out. The sample pins version 0.1.0 of each tool, which is the first release version of all six tools.
 - **`escalate-to` acts only in fan-out stages.** On a role that is used only as a plain role stage (such as a reviewer), `escalate-to` is accepted but has no effect.
 - **Self-escalation is accepted.** `escalate-to` naming the role itself passes validation.
 - **`claude-` on its own is accepted as a model.** Any value starting with `claude-` is allowed; only the `[A-Za-z][A-Za-z0-9_.-]*` shape is checked later.

@@ -52,7 +52,7 @@ public static partial class BranchTemplate
     public const int MaxSlugLength = 40;
 
     /// <summary>Hint attached to prefix errors.</summary>
-    public const string CiPrefixHint = "example-org pipelines trigger only on the full words feature/ and bugfix/; feat/, fix/ and other short forms silently break CI";
+    public const string CiPrefixHint = "CI pipelines often trigger only on exact branch prefixes such as feature/ and bugfix/; short forms such as feat/ or fix/ silently break CI";
 
     static readonly string[] Known = ["{id}", "{slug}", "{kind}"];
 

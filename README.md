@@ -2,7 +2,27 @@
 
 Pasteable **swarm definitions** that run as wide, orchestrated fleets of Claude Code agents — cheap/small models for the bulk of the work, expert (elevated-model) agents only where needed.
 
-> Status: **early tooling**. The capability study and spikes are done, and the first tool is built: `swarm`, which validates a swarm definition (Markdown, YAML or C#) and renders Claude Code agent files, workflow scripts and a runbook. It is not published yet and has not run end to end with real agents. Five more tools are built but not published: `testgate`, `batch`, `squash`, `worktree` and `epic` (see [docs/batch-tools.md](docs/batch-tools.md), [docs/squash-tool.md](docs/squash-tool.md), [docs/worktree-epic-tools.md](docs/worktree-epic-tools.md) and the plans [testgate + batch](docs/plans/2026-10-03-testgate-batch.md), [squash](docs/plans/2026-10-03-squash.md) and [worktree + epic](docs/plans/2026-10-03-worktree-epic.md)). See [docs/definition-format.md](docs/definition-format.md).
+> Status: **early tooling, first release in preparation.** Six tools are built and tested on Windows: `swarm` (validates a swarm definition and renders Claude Code agent files, workflow scripts and a runbook), `testgate`, `batch`, `squash`, `worktree` and `epic`. Version 0.1.0 of all six is being prepared for nuget.org ([CHANGELOG.md](CHANGELOG.md), [docs/publishing.md](docs/publishing.md)); nothing has run end to end with real agents yet. See [docs/definition-format.md](docs/definition-format.md), [docs/batch-tools.md](docs/batch-tools.md), [docs/squash-tool.md](docs/squash-tool.md) and [docs/worktree-epic-tools.md](docs/worktree-epic-tools.md).
+
+## Install
+
+No install step: with the [.NET 10 SDK](https://dotnet.microsoft.com/download) or later, run a tool with `dnx` (use `dnx.cmd` in Git Bash). Put `--` before the tool's own arguments.
+
+```sh
+dnx AgentSwarm.Cli -- validate my-swarm.md
+dnx AgentSwarm.Batch -- run tasks.json
+```
+
+| Package | Command |
+|---|---|
+| `AgentSwarm.Cli` | `swarm` |
+| `AgentSwarm.TestGate` | `testgate` |
+| `AgentSwarm.Batch` | `batch` |
+| `AgentSwarm.Squash` | `squash` |
+| `AgentSwarm.Worktree` | `worktree` |
+| `AgentSwarm.Epic` | `epic` |
+
+Until the first release is on nuget.org, run them from a local feed: `dotnet pack src/Swarm.sln -c Release -o feed`, then add `--add-source feed` to each `dnx` call.
 
 ## Goals
 
@@ -28,7 +48,12 @@ Pasteable **swarm definitions** that run as wide, orchestrated fleets of Claude 
 | [README.md](README.md) | This summary |
 | [AGENTS.md](AGENTS.md) | Instructions for all agents (canonical) |
 | [CLAUDE.md](CLAUDE.md) | Minimal pointer to AGENTS.md |
+| [CHANGELOG.md](CHANGELOG.md) | Release notes |
+| [LICENSE](LICENSE) | MIT license |
 | [docs/](docs/) | Shared documentation; published as a markdown wiki |
+| [src/](src/) | The six tools and their libraries (`src/Swarm.sln`) |
+| [tests/](tests/) | Renderer tests (`Swarm.Tests`) and tool tests (`Swarm.Tools.Tests`) |
+| [.github/workflows/](.github/workflows/) | The nuget.org publish workflow |
 | `.docs/` | Local-only notes and tracking — **git-ignored** |
 
 ## Requirements

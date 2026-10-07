@@ -1,6 +1,6 @@
 ---
 created: 2026-10-02
-updated: 2026-10-06
+updated: 2026-10-07
 status: current
 ---
 # Decision log
@@ -119,7 +119,7 @@ Cross-plan facts:
 
 - The `ILander` contract and `LandRequest`/`LandResult`/`LandedTask`/`LandFailure` are unchanged from the testgate + batch plan; the `Program.Run(args, stdout, stderr, cwd, ILander)` overload is unchanged and the `Func<SwarmConfig, ILander>` overload is the only addition.
 - `GitRunner` gained `WithEnvironment`; `SwarmConfig` gained `lander` and `squash` (old files stay valid, unknown keys still rejected); `baseBranch` is now used by the squash lander.
-- Azure DevOps (`example-org`): epic branches must be `feature/` or `bugfix/` through `epicBranchTemplate`; the tool does not enforce this.
+- Azure DevOps repositories whose pipelines trigger only on `feature/` and `bugfix/`: epic branches must be `feature/` or `bugfix/` through `epicBranchTemplate`; the tool does not enforce this.
 - Bare `dnx Swarm.Squash@0.1.0` (the renderer sample's runbook step) exits 2 and changes nothing; the sample's separate `tool:squash` step is a mismatch for a later renderer change.
 
 ## Worktree + epic production plan (2026-10-05)
@@ -129,7 +129,7 @@ Plan: [2026-10-03-worktree-epic.md](plans/2026-10-03-worktree-epic.md). Tool ref
 | Decision | Choice |
 |---|---|
 | Config | Same `.swarm/batch.json`; new sections `worktree` and `epicTool` only (`epic` is taken by the batch epic id); reuses `worktreeRoot`, `baseBranch`, `stateDir`, `epicBranchTemplate`. |
-| Branch naming | Templates with `{id}`, `{slug}`, `{kind}`; `allowedPrefixes` checked at config load and before creation; example-org uses `{kind}/{id}-{slug}` with `feature/`, `bugfix/` only. |
+| Branch naming | Templates with `{id}`, `{slug}`, `{kind}`; `allowedPrefixes` checked at config load and before creation; an Azure DevOps setup that triggers on prefixes uses `{kind}/{id}-{slug}` with `feature/`, `bugfix/` only. |
 | Managed worktrees | Identified by `branch.<b>.swarm-*` git config, not by path; `<worktreeRoot>/t-<ticket>`. |
 | Merged detection | Batch ledger, ancestry, or merge-tree content equality (squash-aware). The ledger is epic-scoped and trusted only when the branch's current tip is no newer than the landing run's start (review ruling C4). |
 | Prune safety | Locked never removed; dirty/unmerged/empty only with `--force`; `--dry-run`; per-item failures, exit 4. As built, each removal is a per-worktree `git worktree remove` (no repository-wide `git worktree prune`) and branch deletion is a guarded `update-ref -d <branch> <assessed tip>` plus removal of the `branch.<b>.*` section, not `git branch -D`. |
@@ -162,7 +162,7 @@ Cross-plan facts:
 
 ## Build ledgers (2026-10-06)
 
-The subagent-driven build ledgers (pre-flight scans, rulings with their cost if wrong, per-task review outcomes and deferred minors) are archived verbatim: [definition + renderer](swarm-renderer-ledger.md), [testgate + batch](testgate-batch-ledger.md), [squash](squash-ledger.md), [worktree + epic](worktree-epic-ledger.md). The worktree + epic ledger ends at Task 9; Task 10 and the Plan C final-review fix wave are recorded in the commits `2289712` and `3b9c6db` and in the entries above.
+The subagent-driven build ledgers (pre-flight scans, rulings with their cost if wrong, per-task review outcomes and deferred minors) are archived verbatim: [definition + renderer](swarm-renderer-ledger.md), [testgate + batch](testgate-batch-ledger.md), [squash](squash-ledger.md), [worktree + epic](worktree-epic-ledger.md). The worktree + epic ledger ends at Task 9; Task 10 and the Plan C final-review fix wave are recorded in the commits `cc60ae1` and `cc20ee0` and in the entries above.
 
 ## Publishing (2026-10-06)
 
@@ -172,3 +172,5 @@ The subagent-driven build ledgers (pre-flight scans, rulings with their cost if 
 | Credentials | nuget.org Trusted Publishing from GitHub Actions (OIDC, one-hour key); no stored API key. See [publishing.md](publishing.md). |
 | Trigger | A `v*` tag push or a manual run. The publish job runs in the `release` environment and pushes with `--skip-duplicate`, so only tools with a bumped `<Version>` are published. |
 | License and metadata | MIT, shared metadata in `src/Swarm.Packaging.props`. The internal libraries are bundled inside each tool package and are not packable. |
+| First release versions | All six tools are `0.1.0` for the first public release (2026-10-07). The earlier local versions (TestGate 0.1.2, Batch 0.2.1, Squash 0.1.1) were never published; the sample definition's `@0.1.0` pins now match a real release. |
+| Public history | Before the repository went public, its history was rewritten (2026-10-07) to remove a private CI organisation name and local temp paths. Commit hashes quoted in the docs were remapped to the rewritten history; the error hint for disallowed branch prefixes is now generic. |

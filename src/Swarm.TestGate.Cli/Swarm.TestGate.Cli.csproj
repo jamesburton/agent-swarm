@@ -7,7 +7,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>testgate</ToolCommandName>
     <PackageId>AgentSwarm.TestGate</PackageId>
-    <Version>0.1.2</Version>
+    <Version>0.1.0</Version>
     <Description>Machine-wide test-slot gate for agent swarms.</Description>
   </PropertyGroup>
   <ItemGroup>

@@ -1,6 +1,6 @@
 ---
 created: 2026-10-02
-updated: 2026-10-02
+updated: 2026-10-07
 status: current
 ---
 # Delivery workflow: agents, tests, batches, epics
@@ -29,7 +29,7 @@ Epic orchestrator            (expert model, or a Workflow script)
 | Epic | `epic/<id>-<slug>` | Integration line for one epic; ticket commits are squashed onto it |
 | Ticket / task | `task/<ticket>-<slug>` | One worktree per worker, disposable |
 
-- Where a repo's CI needs it (e.g. `example-org` Azure DevOps), the epic and ticket branches must use the full `feature/…` / `bugfix/…` prefixes from the global instructions; the naming scheme is configurable per repo.
+- Where a repo's CI needs it (e.g. Azure DevOps pipelines that trigger on branch prefixes), the epic and ticket branches must use the full `feature/…` / `bugfix/…` prefixes; the naming scheme is configurable per repo.
 - Built-in `isolation: worktree` branches from the **default branch**, not an epic branch, so the tooling creates worktrees itself (`git worktree add -b task/… <path> <epic-branch>`).
 
 ## 3. Test coordination

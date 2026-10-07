@@ -1,6 +1,6 @@
 ---
 created: 2026-10-04
-updated: 2026-10-06
+updated: 2026-10-07
 status: current
 ---
 # testgate and batch
@@ -13,12 +13,12 @@ Everything below was checked against the source and, where marked, by running th
 
 - Requires the .NET 10 SDK or later (`dnx` ships with it).
 - **Not published yet.** The package ids are `AgentSwarm.TestGate` and `AgentSwarm.Batch` (renamed on 2026-10-06 from the placeholders `Swarm.TestGate` and `Swarm.Batch`); nuget.org returned 404 for all six `AgentSwarm.*` ids on 2026-10-06, so until the first publish anyone could publish under them and `dnx` would download and run it (dependency confusion). Run them only with `--add-source <your feed>` until a release has been published (see [publishing.md](publishing.md)). Package metadata (MIT license, authors, repository, readme) comes from `src/Swarm.Packaging.props`; `dotnet pack` of the solution printed no warnings on 2026-10-06. Run records on this page and in [dnx-invocation-notes.md](dnx-invocation-notes.md) were made before the rename and show the old `Swarm.*` ids.
-- `AgentSwarm.TestGate` is version `0.1.2`; `AgentSwarm.Batch` is `0.2.1` (0.2.0 made squash the default lander; 0.1.2/0.2.1 only accept the `worktree` and `epicTool` config sections of the worktree and epic tools). dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)).
+- Both tools are version `0.1.0` for the first public release (all six tools were aligned to 0.1.0 on 2026-10-07). Earlier local builds were TestGate 0.1.1/0.1.2 and Batch 0.1.1/0.2.0/0.2.1; the run records show those numbers. dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)).
 - dnx rules that matter here: there is no `--yes`, use `dnx.cmd` in Git Bash, and put `--` before the tool's own arguments. Details and the smoke runs of both tools: [dnx-invocation-notes.md](dnx-invocation-notes.md).
 
 ```bash
-dnx.cmd AgentSwarm.TestGate@0.1.2 --add-source FEED -- run -- dotnet test
-dnx.cmd AgentSwarm.Batch@0.2.1 --add-source FEED -- run tasks.json
+dnx.cmd AgentSwarm.TestGate@0.1.0 --add-source FEED -- run -- dotnet test
+dnx.cmd AgentSwarm.Batch@0.1.0 --add-source FEED -- run tasks.json
 ```
 
 ## testgate

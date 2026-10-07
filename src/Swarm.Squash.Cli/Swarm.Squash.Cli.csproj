@@ -7,7 +7,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>squash</ToolCommandName>
     <PackageId>AgentSwarm.Squash</PackageId>
-    <Version>0.1.1</Version>
+    <Version>0.1.0</Version>
     <Description>Lands a task branch on its epic as one trailer-stamped commit, for agent swarms.</Description>
   </PropertyGroup>
   <ItemGroup>

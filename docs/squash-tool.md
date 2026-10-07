@@ -1,6 +1,6 @@
 ---
 created: 2026-10-04
-updated: 2026-10-06
+updated: 2026-10-07
 status: current
 ---
 # squash
@@ -13,7 +13,7 @@ Written on 2026-10-04 from the source at the end of the squash plan. Each statem
 
 - **Not published yet.** The package id is `AgentSwarm.Squash` (renamed on 2026-10-06 from the placeholder `Swarm.Squash`); nuget.org returned 404 for all six `AgentSwarm.*` ids on 2026-10-06, so until the first publish anyone could publish under them and `dnx` would download and run it (dependency confusion). Run them only with `--add-source <your feed>` until a release has been published (see [publishing.md](publishing.md)).
 - Package metadata (MIT license, authors, repository, readme) comes from `src/Swarm.Packaging.props`; `dotnet pack` of the solution printed no warnings on 2026-10-06. Run records on this page and in [dnx-invocation-notes.md](dnx-invocation-notes.md) were made before the rename and show the old `Swarm.*` ids.
-- Versions as built: `AgentSwarm.Squash` 0.1.1, `AgentSwarm.Batch` 0.2.1, `AgentSwarm.TestGate` 0.1.2 (bumped together when the `worktree` and `epicTool` config sections were added). dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)).
+- Version `0.1.0` for the first public release, like the other five tools (aligned on 2026-10-07). Earlier local builds were Squash 0.1.0/0.1.1 with Batch 0.2.x and TestGate 0.1.x; the run records show those numbers. dnx caches an extracted version under `~/.nuget/packages/<id>/<version>` and does not pick up a re-pack of the same version: bump `<Version>` on every re-pack (see [dnx-invocation-notes.md](dnx-invocation-notes.md#gotcha-stale-tool-cache)).
 - Requires the .NET 10 SDK or later. dnx rules: no `--yes`, `dnx.cmd` in Git Bash, `--` before the tool's own arguments. Run records: [dnx-invocation-notes.md](dnx-invocation-notes.md#companion-tools).
 - The renderer sample's runbook step `dnx AgentSwarm.Squash@0.1.0` has no arguments. It exits 2 with `error: Required command was not provided. (see --help)` and changes nothing (run as `Swarm.Squash@0.1.0` before the rename, see the dnx notes). In a batch flow the squashing happens inside `batch`, not in that step.
 
@@ -132,7 +132,7 @@ Every message, from `SquashConfigTests` (each is exit 2, one line, `<source>: <m
 | a message naming the unknown key, for example `'tiketPattern'` | unknown key in `squash` |
 | `invalid config ...` | `"squash": null` (also other `null` values) |
 
-**Azure DevOps branch names.** The epic branch name comes from `epicBranchTemplate`. For `example-org` repositories the pipelines match only `feature/` and `bugfix/` prefixes, and shortened prefixes such as `feat/` or `fix/` silently break pipeline triggers. The tool does not check the prefix. Use, for example:
+**Azure DevOps branch names.** The epic branch name comes from `epicBranchTemplate`. Some Azure DevOps pipelines match only `feature/` and `bugfix/` prefixes, and shortened prefixes such as `feat/` or `fix/` silently break pipeline triggers. The tool does not check the prefix. Use, for example:
 
 ```json
 { "epic": "9933-squash-tool", "epicBranchTemplate": "feature/{epic}" }
